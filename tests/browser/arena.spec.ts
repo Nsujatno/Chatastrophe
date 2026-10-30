@@ -8,12 +8,12 @@ declare global { interface Window { __game: Phaser.Game; deaths: { reason: strin
 async function open(page: Page): Promise<void> {
   await page.goto('/');
   await expect(page.locator('#game-container')).toHaveAttribute('data-ready', 'true', { timeout: 15_000 });
-  await expect(page.getByRole('button', { name: 'Enter the yard' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Start run', exact: true })).toBeVisible();
 }
 
 async function start(page: Page): Promise<void> {
   await open(page);
-  await page.getByRole('button', { name: 'Enter the yard' }).click();
+  await page.getByRole('button', { name: 'Start run', exact: true }).click();
   await expect(page.locator('#game-container')).toHaveAttribute('data-phase', 'playing');
 }
 
@@ -93,11 +93,12 @@ test('automatically shoots, kills, emits one death, and drops collectible scrap'
   await expect.poll(async () => (await snapshot(page)).scrap).toBeGreaterThanOrEqual(4);
 });
 
-test('settles three waves, banks half-value survivors once, repairs, buys one upgrade and wins', async ({ page }) => {
+test('settles four waves, banks half-value survivors once, repairs, buys and continues endlessly', async ({ page }) => {
+  test.setTimeout(60_000);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await start(page);
-  for (let wave = 0; wave < 3; wave++) {
+  for (let wave = 0; wave < 4; wave++) {
     await page.evaluate(() => {
       const scene = window.__game.scene.getScene('ArenaScene') as ArenaScene;
       scene.enemies.clear(true, true);
@@ -106,14 +107,14 @@ test('settles three waves, banks half-value survivors once, repairs, buys one up
       scene.spawnEnemy('hauler', 70, 70);
       scene.run.tick(scene.run.remainingMs);
     });
-    await expect(page.locator('#game-container')).toHaveAttribute('data-phase', wave === 2 ? 'won' : 'shop');
+    await expect(page.locator('#game-container')).toHaveAttribute('data-phase', 'shop');
     expect((await snapshot(page)).enemies).toBe(0);
     expect((await snapshot(page)).projectiles).toBe(0);
     expect((await snapshot(page)).pickups).toBe(0);
-    if (wave < 2) {
+    if (wave < 4) {
       expect((await snapshot(page)).health).toBe(100);
       const before = (await snapshot(page)).scrap;
-      expect(before).toBe(wave === 0 ? 106 : 152);
+      expect(before).toBe(106 + wave * 106 - wave * 60 - wave * (wave - 1) * 15);
       await page.locator('#buy-damage').click();
       expect((await snapshot(page)).scrap).toBe(before - (60 + wave * 30));
       await expect(page.locator('#buy-attackSpeed')).toBeDisabled();
@@ -123,12 +124,17 @@ test('settles three waves, banks half-value survivors once, repairs, buys one up
       expect((await snapshot(page)).wave).toBe(wave + 1);
     }
   }
-  await expect(page.getByRole('heading', { name: 'The last one running.' })).toBeVisible();
-  await page.screenshot({ path: 'test-results/m1-victory.png', fullPage: true });
+  expect((await snapshot(page)).wave).toBe(4);
+  expect((await snapshot(page)).remainingMs).toBeLessThanOrEqual(60_000);
+  await page.screenshot({ path: 'test-results/m2-endless.png', fullPage: true });
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await page.evaluate(() => (window.__game.scene.getScene('ArenaScene') as ArenaScene).run.collect(1));
+    await page.evaluate(() => {
+      const scene = window.__game.scene.getScene('ArenaScene') as ArenaScene;
+      scene.events.once('create', () => scene.togglePause());
+    });
     await page.getByRole('button', { name: 'Restart run' }).click();
-    await expect(page.locator('#game-container')).toHaveAttribute('data-phase', 'playing');
+    await expect(page.locator('#game-container')).toHaveAttribute('data-phase', 'paused');
     await expect.poll(async () => (await snapshot(page)).scrap).toBe(0);
     const fresh = await snapshot(page);
     expect(fresh).toMatchObject({ wave: 0, health: 100, scrap: 0, kills: 0, damage: 12, speed: 260, attackMs: 450, enemies: 0, projectiles: 0, pickups: 0, bodies: 1, deathListeners: 1, pauseListeners: 1 });
@@ -206,7 +212,7 @@ test('keeps the full logical viewport and usable menus on desktop and portrait',
     }).toBe(true);
     await expect(page.locator('canvas')).toHaveAttribute('width', '1280');
     await expect(page.locator('canvas')).toHaveAttribute('height', '720');
-    await expect(page.getByRole('button', { name: 'Enter the yard' })).toBeInViewport();
+    await expect(page.getByRole('button', { name: 'Start run', exact: true })).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
   await page.screenshot({ path: 'test-results/m1-portrait.png', fullPage: true });
@@ -217,7 +223,7 @@ test('reports missing artwork and keeps the game unavailable', async ({ page }) 
   await page.goto('/');
   await expect(page.locator('#load-status')).toContainText('Could not load the artwork (skitter-move)');
   await expect(page.locator('#game-container')).toHaveAttribute('data-ready', 'false');
-  await expect(page.getByRole('button', { name: 'Enter the yard' })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Start run', exact: true })).toBeHidden();
   await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeDisabled();
 });
 
@@ -311,7 +317,7 @@ test('animates every enemy in four directions, keeps hitboxes fixed, and freezes
   expect(errors).toEqual([]);
 });
 
-test('survives all 135 seconds through normal physics and keyboard states', async ({ page }) => {
+test('survives 195 seconds and four waves through normal physics and keyboard states', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await start(page);
   const result = await page.evaluate(() => {
@@ -333,7 +339,7 @@ test('survives all 135 seconds through normal physics and keyboard states', asyn
       scene.restartRun();
       game.headlessStep(time, 0);
       if (scene.run.elapsedMs !== 0) throw new Error('Replay must begin on a fresh simulation frame');
-      for (let frame = 0; frame < 10_000 && scene.run.phase !== 'won' && scene.run.phase !== 'lost'; frame++) {
+      for (let frame = 0; frame < 13_000 && !(scene.run.phase === 'shop' && scene.run.wave === 3) && scene.run.phase !== 'lost'; frame++) {
         if (scene.run.phase === 'shop') {
           scene.run.buy(scene.run.wave === 0 ? 'damage' : 'attackSpeed');
           scene.startWave();
@@ -387,8 +393,8 @@ test('survives all 135 seconds through normal physics and keyboard states', asyn
   const { combatFrame, ...stats } = result;
   if (combatFrame) writeFileSync('test-results/m1-combat.png', Buffer.from(combatFrame.split(',')[1], 'base64'));
   console.log('Full-run verification:', stats);
-  expect(result.phase, JSON.stringify(stats)).toBe('won');
-  expect(result.elapsed).toBeCloseTo(135_000);
+  expect(result.phase, JSON.stringify(stats)).toBe('shop');
+  expect(result.elapsed).toBeCloseTo(195_000);
   expect(result.health).toBeGreaterThan(0);
   expect(result.kills).toBeGreaterThan(20);
   expect(result.seen.sort()).toEqual(['hauler', 'hover-drone', 'skitter']);

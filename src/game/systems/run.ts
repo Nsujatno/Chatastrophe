@@ -1,5 +1,6 @@
-export type EnemyKind = 'hover-drone' | 'skitter' | 'hauler';
-export type Phase = 'ready' | 'playing' | 'settling' | 'shop' | 'lost' | 'won';
+import type { EnemyKind } from '../../shared/rules';
+export type { EnemyKind } from '../../shared/rules';
+export type Phase = 'ready' | 'playing' | 'settling' | 'shop' | 'lost';
 export type Upgrade = 'damage' | 'attackSpeed' | 'movementSpeed';
 export type Facing = 'down' | 'left' | 'right' | 'up';
 
@@ -18,6 +19,7 @@ export const ENEMIES: Record<EnemyKind, { health: number; speed: number; width: 
 export const LIMITS = { enemies: 70, projectiles: 48, pickups: 140, warnings: 8, effects: 60 } as const;
 export const SPAWN = { warningMs: 750, safeDistance: 320, margin: 70 } as const;
 export const WEAPON = { range: 520, speed: 620, lifetimeMs: 1400 } as const;
+export const PROGRESSION = { minSpawnMs: 220, maxHealth: 3, damage: 120, attackMs: 150, speed: 360 } as const;
 
 export interface Point { x: number; y: number }
 
@@ -61,9 +63,16 @@ export class Run {
   purchased?: Upgrade;
   upgrades: Record<Upgrade, number> = { damage: 0, attackSpeed: 0, movementSpeed: 0 };
 
-  get waveConfig() { return WAVES[this.wave]; }
+  get waveConfig() {
+    const opening = WAVES[Math.min(this.wave, WAVES.length - 1)];
+    const extra = Math.max(0, this.wave - 2);
+    return { ...opening, spawnMs: Math.max(PROGRESSION.minSpawnMs, opening.spawnMs - extra * 25), healthMultiplier: Math.min(PROGRESSION.maxHealth, 1 + extra * 0.12) };
+  }
   get upgradeCost(): number { return 60 + this.wave * 30; }
   get invulnerable(): boolean { return this.elapsedMs < this.invulnerableUntil; }
+  maxed(upgrade: Upgrade): boolean {
+    return upgrade === 'damage' ? this.damage >= PROGRESSION.damage : upgrade === 'attackSpeed' ? this.attackMs <= PROGRESSION.attackMs : this.speed >= PROGRESSION.speed;
+  }
 
   startWave(): boolean {
     if (this.phase !== 'ready' && this.phase !== 'shop') return false;
@@ -100,20 +109,21 @@ export class Run {
 
   finishWave(): boolean {
     if (this.phase !== 'settling') return false;
-    if (this.wave === WAVES.length - 1) this.phase = 'won';
-    else { this.phase = 'shop'; this.health = this.maxHealth; }
+    this.phase = 'shop';
+    this.health = this.maxHealth;
     return true;
   }
 
   buy(upgrade: Upgrade): boolean {
     if (this.phase !== 'shop' || this.purchased || this.scrap < this.upgradeCost) return false;
     if (!Object.hasOwn(this.upgrades, upgrade)) return false;
+    if (this.maxed(upgrade)) return false;
     this.scrap -= this.upgradeCost;
     this.purchased = upgrade;
     this.upgrades[upgrade]++;
-    if (upgrade === 'damage') this.damage += 6;
-    if (upgrade === 'attackSpeed') this.attackMs *= 0.75;
-    if (upgrade === 'movementSpeed') this.speed *= 1.15;
+    if (upgrade === 'damage') this.damage = Math.min(PROGRESSION.damage, this.damage + 6);
+    if (upgrade === 'attackSpeed') this.attackMs = Math.max(PROGRESSION.attackMs, this.attackMs * 0.75);
+    if (upgrade === 'movementSpeed') this.speed = Math.min(PROGRESSION.speed, this.speed * 1.15);
     return true;
   }
 }

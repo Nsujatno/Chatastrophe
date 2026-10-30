@@ -5,9 +5,14 @@ import { Player } from '../entities/Player';
 import { Enemy } from '../entities/Enemy';
 import { Projectile } from '../entities/Projectile';
 import { Scrap } from '../entities/Scrap';
-import { ENEMY_DIED, type EnemyDeath } from '../events/gameEvents';
-import { ENEMIES, LIMITS, Run, SPAWN, WEAPON, nearest, safeSpawn, scrapValue, type EnemyKind, type Upgrade } from '../systems/run';
+import { ENEMY_DIED, GAME_EVENTS, type EnemyDeath } from '../events/gameEvents';
+import { LIMITS, Run, SPAWN, WEAPON, nearest, safeSpawn, type EnemyKind, type Upgrade } from '../systems/run';
 import { GameUI } from '../ui/GameUI';
+import { DebugUI } from '../ui/DebugUI';
+import { SabotageManager, type BlastRequest, type GameEvent, type Point, type RuleEntity, type SpawnRequest } from '../rules/SabotageManager';
+import type { EnemyOptions } from '../entities/Enemy';
+
+let nextRunId = 0;
 
 interface Warning { x: number; y: number; kind: EnemyKind; remainingMs: number; marker: Phaser.GameObjects.Image }
 
@@ -19,6 +24,10 @@ export class ArenaScene extends Phaser.Scene {
   pickups!: Phaser.GameObjects.Group;
   warnings: Warning[] = [];
   paused = false;
+  sabotage!: SabotageManager;
+  ruleWarnings = new Set<Phaser.GameObjects.GameObject>();
+  private debug?: DebugUI;
+  private nextEntityId = 0;
   private effects!: Phaser.GameObjects.Group;
   private ui?: GameUI;
   private spawnRemaining = 0;
@@ -36,6 +45,8 @@ export class ArenaScene extends Phaser.Scene {
     this.spawnRemaining = 0;
     this.attackRemaining = 0;
     this.settling = false;
+    this.nextEntityId = 0;
+    this.ruleWarnings = new Set();
     this.autoStart = Boolean(data.start);
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
@@ -43,7 +54,7 @@ export class ArenaScene extends Phaser.Scene {
   preload(): void {
     const loading = document.getElementById('load-status')!;
     loading.hidden = false;
-    loading.textContent = 'Unfolding the paper world…';
+    loading.textContent = 'Loading…';
     document.getElementById('game-container')!.dataset.ready = 'false';
     document.getElementById('game-menu')!.hidden = true;
     for (const [key, asset] of Object.entries(ASSETS)) {
@@ -73,11 +84,29 @@ export class ArenaScene extends Phaser.Scene {
     this.pickups = this.add.group();
     this.effects = this.add.group();
     this.player = new Player(this, ARENA.width / 2, ARENA.height / 2, this.reducedMotion);
+    this.sabotage = new SabotageManager(++nextRunId, {
+      bounds: ARENA,
+      player: () => this.playerSnapshot(),
+      enemies: () => (this.enemies.getChildren() as Enemy[]).map(enemy => this.enemySnapshot(enemy)),
+      healthPercent: () => this.run.health / this.run.maxHealth * 100,
+      subscribe: (type, handler) => {
+        this.events.on(GAME_EVENTS[type], handler);
+        return () => this.events.off(GAME_EVENTS[type], handler);
+      },
+      warn: (type, point, radius) => this.warnRule(type, point, radius),
+      spawn: request => this.spawnFromRule(request),
+      explode: request => this.explode(request),
+      removeOwned: owner => {
+        if (!this.enemies.scene) return;
+        for (const enemy of [...this.enemies.getChildren()] as Enemy[]) if (enemy.owner === owner) enemy.destroy();
+      },
+    });
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.cameras.main.centerOn(this.player.x, this.player.y);
     this.physics.add.overlap(this.projectiles, this.enemies, (a, b) => {
       if (a instanceof Projectile && b instanceof Enemy) this.projectileHit(a, b);
     });
+    this.physics.add.collider(this.enemies, this.enemies);
     this.physics.add.overlap(this.player, this.enemies, (_player, enemy) => {
       if (enemy instanceof Enemy) this.contact(enemy);
     });
@@ -87,7 +116,23 @@ export class ArenaScene extends Phaser.Scene {
     this.events.on(ENEMY_DIED, this.dropScrap, this);
     this.ui = new GameUI({
       start: () => this.startWave(), restart: () => this.restartRun(), pause: () => this.togglePause(),
-      buy: (upgrade: Upgrade) => { this.run.buy(upgrade); this.ui?.render(this.run, this.paused); },
+      fullscreen: () => this.scale.toggleFullscreen(),
+      buy: (upgrade: Upgrade) => { this.run.buy(upgrade); this.renderUI(); },
+    }, this.sabotage);
+    const updateFullscreen = (): void => {
+      this.ui?.setFullscreen(this.scale.isFullscreen, this.scale.fullscreen.available);
+    };
+    const fullscreenFailed = (): void => { this.ui?.fullscreenFailed(); };
+    this.scale.on(Phaser.Scale.Events.ENTER_FULLSCREEN, updateFullscreen);
+    this.scale.on(Phaser.Scale.Events.LEAVE_FULLSCREEN, updateFullscreen);
+    this.scale.on(Phaser.Scale.Events.FULLSCREEN_FAILED, fullscreenFailed);
+    this.scale.on(Phaser.Scale.Events.FULLSCREEN_UNSUPPORTED, fullscreenFailed);
+    updateFullscreen();
+    if (import.meta.env.DEV) this.debug = new DebugUI(this.sabotage, {
+      pauseForInput: () => { if (!this.paused) this.togglePause(); this.input.keyboard!.enabled = false; this.input.keyboard!.disableGlobalCapture(); this.input.keyboard!.resetKeys(); },
+      releaseInput: () => { this.input.keyboard!.enabled = true; this.input.keyboard!.enableGlobalCapture(); this.input.keyboard!.resetKeys(); },
+      clear: () => { this.sabotage.clear(); this.syncStats(); this.renderUI(); },
+      advance: () => this.advanceWave(), changed: () => this.renderUI(),
     });
     const blur = (): void => { if (!this.paused) this.togglePause(); };
     const visibility = (): void => { if (document.hidden) blur(); };
@@ -97,9 +142,17 @@ export class ArenaScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.ui?.destroy();
       this.ui = undefined;
+      this.scale.off(Phaser.Scale.Events.ENTER_FULLSCREEN, updateFullscreen);
+      this.scale.off(Phaser.Scale.Events.LEAVE_FULLSCREEN, updateFullscreen);
+      this.scale.off(Phaser.Scale.Events.FULLSCREEN_FAILED, fullscreenFailed);
+      this.scale.off(Phaser.Scale.Events.FULLSCREEN_UNSUPPORTED, fullscreenFailed);
+      this.sabotage.clear('restart');
+      this.debug?.destroy();
+      this.debug = undefined;
       this.game.events.off(Phaser.Core.Events.BLUR, blur);
       document.removeEventListener('visibilitychange', visibility);
       this.events.off(ENEMY_DIED, this.dropScrap, this);
+      this.input.keyboard!.off('keydown-ESC', this.togglePause, this);
       this.clearWarnings();
       this.time.paused = false;
     });
@@ -107,7 +160,7 @@ export class ArenaScene extends Phaser.Scene {
     document.getElementById('load-status')!.hidden = true;
     document.getElementById('game-container')!.dataset.ready = 'true';
     if (this.autoStart) this.startWave();
-    this.ui.render(this.run, false);
+    this.renderUI();
   }
 
   update(_time: number, delta: number): void {
@@ -116,7 +169,10 @@ export class ArenaScene extends Phaser.Scene {
       const dt = Math.min(delta, 100);
       if (this.run.tick(dt)) this.endWave();
       else {
-        this.player.control(this.run.speed);
+        this.sabotage.tick(dt);
+        if (this.run.phase !== 'playing') { this.renderUI(); return; }
+        this.syncStats();
+        this.player.control(this.playerStat('move_speed', this.run.speed));
         this.player.setAlpha(this.run.invulnerable ? 0.55 : 1);
         for (const enemy of this.enemies.getChildren() as Enemy[]) enemy.chase(this.player);
         this.updateSpawning(dt);
@@ -124,7 +180,7 @@ export class ArenaScene extends Phaser.Scene {
         this.updatePickups();
       }
     } else if (this.run.phase === 'settling' && !this.settling) this.endWave();
-    this.ui.render(this.run, this.paused);
+    this.renderUI();
   }
 
   startWave(): void {
@@ -135,10 +191,13 @@ export class ArenaScene extends Phaser.Scene {
     this.player.setAlpha(1).clearTint();
     this.input.keyboard!.resetKeys();
     this.physics.resume();
-    this.ui?.render(this.run, false);
+    this.sabotage.beginWave(this.run.wave + 1, this.run.remainingMs);
+    this.emitGameEvent('wave_started');
+    this.syncStats();
+    this.renderUI();
   }
 
-  restartRun(): void { this.scene.restart({ start: true }); }
+  restartRun(): void { this.sabotage.clear('restart'); this.scene.restart({ start: true }); }
 
   togglePause(): void {
     if (this.run.phase !== 'playing') return;
@@ -153,13 +212,15 @@ export class ArenaScene extends Phaser.Scene {
       this.physics.resume(); this.tweens.resumeAll(); this.player.anims.resume();
       for (const enemy of this.enemies.getChildren() as Enemy[]) enemy.anims.resume();
     }
-    this.ui?.render(this.run, this.paused);
+    this.renderUI();
   }
 
-  spawnEnemy(kind: EnemyKind, x: number, y: number): Enemy | undefined {
+  spawnEnemy(kind: EnemyKind, x: number, y: number, options: Omit<EnemyOptions, 'id' | 'healthMultiplier'> = {}, depth = 0): Enemy | undefined {
     if (this.run.phase !== 'playing' || this.enemies.getLength() >= LIMITS.enemies) return;
-    const enemy = new Enemy(this, x, y, kind);
+    const enemy = new Enemy(this, x, y, kind, { ...options, id: `${this.sabotage.runId}:enemy:${++this.nextEntityId}`, healthMultiplier: this.run.waveConfig.healthMultiplier });
     this.enemies.add(enemy);
+    this.emitGameEvent('enemy_spawned', this.enemySnapshot(enemy), depth);
+    this.syncEnemyStats(enemy);
     enemy.chase(this.player);
     return enemy;
   }
@@ -175,7 +236,7 @@ export class ArenaScene extends Phaser.Scene {
     this.spawnRemaining -= dt;
     if (this.spawnRemaining > 0) return;
     this.spawnRemaining = this.run.waveConfig.spawnMs;
-    if (this.enemies.getLength() + this.warnings.length >= LIMITS.enemies || this.warnings.length >= LIMITS.warnings) return;
+    if (this.enemies.getLength() + this.warnings.length + this.sabotage.pendingCount >= LIMITS.enemies || this.warnings.length + this.ruleWarnings.size >= LIMITS.warnings) return;
     for (let attempt = 0; attempt < 24; attempt++) {
       const x = Phaser.Math.Between(SPAWN.margin, ARENA.width - SPAWN.margin);
       const y = Phaser.Math.Between(SPAWN.margin, ARENA.height - SPAWN.margin);
@@ -199,17 +260,22 @@ export class ArenaScene extends Phaser.Scene {
     if (this.attackRemaining > 0 || this.projectiles.getLength() >= LIMITS.projectiles) return;
     const target = nearest(this.player, this.enemies.getChildren() as Enemy[], WEAPON.range);
     if (!target) return;
-    this.projectiles.add(new Projectile(this, this.player.x, this.player.y, target, this.run.damage));
-    this.attackRemaining = this.run.attackMs;
+    this.projectiles.add(new Projectile(this, this.player.x, this.player.y, target, this.playerStat('projectile_damage', this.run.damage)));
+    this.attackRemaining = this.playerStat('attack_interval', this.run.attackMs);
   }
 
   private projectileHit(bullet: Projectile, enemy: Enemy): void {
     if (this.run.phase !== 'playing' || !bullet.active || !enemy.active) return;
     const damage = bullet.damage;
     bullet.destroy();
+    this.damageEnemy(enemy, damage, 0);
+  }
+
+  private damageEnemy(enemy: Enemy, damage: number, depth: number): void {
+    if (!enemy.active || this.run.phase !== 'playing') return;
     enemy.health -= damage;
     this.burst(enemy.x, enemy.y, 0xe4b839, 10);
-    if (enemy.health <= 0) this.killEnemy(enemy, 'combat');
+    if (enemy.health <= 0) this.killEnemy(enemy, 'combat', depth);
     else {
       enemy.setTint(0xf4f0e6).setTintMode(Phaser.TintModes.FILL);
       this.time.delayedCall(80, () => { if (enemy.active) enemy.clearTint(); });
@@ -217,20 +283,29 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private contact(enemy: Enemy): void {
-    if (!enemy.active || this.paused || !this.run.hurt(ENEMIES[enemy.kind].damage)) return;
+    if (!enemy.active || this.paused) return;
+    this.hurtPlayer(enemy.contactDamage, 0);
+  }
+
+  private hurtPlayer(damage: number, depth: number): void {
+    if (!this.run.hurt(damage)) return;
+    if (this.run.phase === 'lost') this.sabotage.clear('death');
+    this.emitGameEvent('player_damaged', this.playerSnapshot(), depth, damage);
     this.player.setTint(0xee6b59).setTintMode(Phaser.TintModes.FILL);
     this.time.delayedCall(110, () => { if (this.player.active) this.player.clearTint(); });
     if (this.run.phase === 'lost') {
+      this.syncStats();
       this.freezeArena();
       this.clearWarnings();
       this.player.setAlpha(0.5);
-      this.ui?.render(this.run, false);
+      this.renderUI();
     }
   }
 
-  private killEnemy(enemy: Enemy, reason: EnemyDeath['reason']): void {
+  private killEnemy(enemy: Enemy, reason: EnemyDeath['reason'], depth = 0): void {
     if (!enemy.active) return;
-    const event: EnemyDeath = { kind: enemy.kind, x: enemy.x, y: enemy.y, reason, scrap: scrapValue(enemy.kind, reason) };
+    const event: EnemyDeath = { type: 'enemy_died', runId: this.sabotage.runId, wave: this.run.wave + 1, depth,
+      subject: this.enemySnapshot(enemy), position: { x: enemy.x, y: enemy.y }, kind: enemy.kind, x: enemy.x, y: enemy.y, reason, scrap: enemy.reward * (reason === 'shutdown' ? 0.5 : 1) };
     if (this.effects.getLength() < LIMITS.effects) {
       const ghost = this.add.image(enemy.x, enemy.y, enemy.texture.key, enemy.frame.name).setDisplayOrigin(enemy.displayOriginX, enemy.displayOriginY)
         .setScale(enemy.scaleX).setDepth(9).setTint(reason === 'shutdown' ? 0x87936b : 0x5b6056);
@@ -238,12 +313,14 @@ export class ArenaScene extends Phaser.Scene {
       this.tweens.add({ targets: ghost, alpha: 0, scaleX: ghost.scaleX * 0.7, scaleY: ghost.scaleY * 0.7, duration: this.reducedMotion ? 80 : 220, onComplete: () => ghost.destroy() });
     }
     enemy.destroy();
+    this.sabotage.forgetEntity(event.subject!.id);
     if (reason === 'combat') this.run.kills++;
     this.events.emit(ENEMY_DIED, event);
   }
 
   private dropScrap(event: EnemyDeath): void {
     this.burst(event.x, event.y, 0x87936b, 17);
+    if (event.scrap <= 0) return;
     if (this.pickups.getLength() >= LIMITS.pickups) this.run.collect(event.scrap);
     else this.pickups.add(new Scrap(this, event.x, event.y, event.scrap));
   }
@@ -265,6 +342,8 @@ export class ArenaScene extends Phaser.Scene {
   private endWave(): void {
     if (this.settling) return;
     this.settling = true;
+    this.sabotage.clear('wave_end');
+    this.syncStats();
     this.freezeArena();
     this.clearWarnings();
     this.player.setAlpha(1).clearTint();
@@ -278,7 +357,7 @@ export class ArenaScene extends Phaser.Scene {
         this.pickups.clear(true, true);
         this.effects.clear(true, true);
         this.run.finishWave();
-        this.ui?.render(this.run, false);
+        this.renderUI();
       });
     });
   }
@@ -303,4 +382,65 @@ export class ArenaScene extends Phaser.Scene {
     this.tweens.add({ targets: ring, scale: 1.6, alpha: 0, duration: 170, onComplete: () => ring.destroy() });
   }
 
+  advanceWave(): void {
+    if (this.run.phase !== 'playing') return;
+    if (this.paused) this.togglePause();
+    this.run.tick(this.run.remainingMs);
+    this.endWave();
+    this.renderUI();
+  }
+
+  private playerSnapshot(): RuleEntity {
+    return { id: 'player', kind: 'player', x: this.player.x, y: this.player.y, tags: [], generation: 0, radius: this.player.body.halfWidth };
+  }
+
+  private enemySnapshot(enemy: Enemy): RuleEntity {
+    return { id: enemy.entityId, kind: enemy.kind, x: enemy.x, y: enemy.y, tags: [...enemy.tags], generation: enemy.generation, radius: enemy.body.halfWidth };
+  }
+
+  private emitGameEvent(type: GameEvent['type'], subject?: RuleEntity, depth = 0, damage?: number): void {
+    const event: GameEvent = { type, runId: this.sabotage.runId, wave: this.run.wave + 1, depth, subject,
+      position: subject ? { x: subject.x, y: subject.y } : undefined, damage, health: this.run.health };
+    this.events.emit(GAME_EVENTS[type], event);
+  }
+
+  private playerStat(stat: 'move_speed' | 'projectile_damage' | 'attack_interval', base: number): number {
+    return this.sabotage.modifiers.effective('player', stat, base, 'player');
+  }
+
+  private syncStats(): void { for (const enemy of this.enemies.getChildren() as Enemy[]) this.syncEnemyStats(enemy); }
+
+  private syncEnemyStats(enemy: Enemy): void {
+    const stats = this.sabotage.modifiers;
+    enemy.speed = stats.effective(enemy.entityId, 'move_speed', enemy.baseSpeed, 'enemy');
+    enemy.contactDamage = stats.effective(enemy.entityId, 'contact_damage', enemy.baseDamage, 'enemy');
+    enemy.setSizeMultiplier(stats.effective(enemy.entityId, 'size', enemy.baseSize, 'enemy'));
+  }
+
+  private warnRule(type: 'spawn' | 'explode', point: Point, radius: number): (() => void) | undefined {
+    if (this.warnings.length + this.ruleWarnings.size >= LIMITS.warnings) return;
+    const marker = type === 'spawn' ? this.add.image(point.x, point.y, 'spawn-warning') : this.add.circle(point.x, point.y, radius, 0xbd573b, 0.16).setStrokeStyle(3, 0xb04732);
+    marker.setDepth(4);
+    if (marker instanceof Phaser.GameObjects.Image) {
+      const bounds = ASSETS['spawn-warning'].bounds;
+      marker.setDisplayOrigin(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2).setScale(64 / bounds.width).setTint(0xdab36f);
+    }
+    this.ruleWarnings.add(marker);
+    return () => { this.ruleWarnings.delete(marker); marker.destroy(); };
+  }
+
+  private spawnFromRule(request: SpawnRequest): void {
+    this.spawnEnemy(request.kind, request.x, request.y, request, request.depth);
+  }
+
+  private explode(request: BlastRequest): void {
+    if (this.run.phase !== 'playing' || this.sabotage.active?.owner !== request.owner) return;
+    this.burst(request.x, request.y, 0xb04732, request.radius);
+    for (const enemy of [...this.enemies.getChildren()] as Enemy[]) {
+      if (Phaser.Math.Distance.BetweenPoints(request, enemy) <= request.radius + enemy.body.halfWidth) this.damageEnemy(enemy, request.damage, request.depth);
+    }
+    if (Phaser.Math.Distance.BetweenPoints(request, this.player) <= request.radius + this.player.body.halfWidth) this.hurtPlayer(request.damage, request.depth);
+  }
+
+  private renderUI(): void { this.ui?.render(this.run, this.paused); this.debug?.render(); }
 }

@@ -8,14 +8,16 @@ function shop(run: Run): void {
 }
 
 describe('survival run', () => {
-  it('requires the full increasing timer in every wave and wins only after settling the last', () => {
+  it('requires full timers and continues beyond wave three with bounded progression', () => {
     const run = new Run();
     expect(run.startWave()).toBe(true);
     expect(run.startWave()).toBe(false);
     expect(run.finishWave()).toBe(false);
-    for (let wave = 0; wave < 3; wave++) {
+    for (let wave = 0; wave < 100; wave++) {
       expect(run.wave).toBe(wave);
-      expect(run.remainingMs).toBe([30_000, 45_000, 60_000][wave]);
+      expect(run.remainingMs).toBe([30_000, 45_000, 60_000][Math.min(wave, 2)]);
+      expect(run.waveConfig.spawnMs).toBeGreaterThanOrEqual(220);
+      expect(run.waveConfig.healthMultiplier).toBeLessThanOrEqual(3);
       expect(run.tick(run.remainingMs - 1)).toBe(false);
       expect(run.phase).toBe('playing');
       expect(run.tick(1000)).toBe(true);
@@ -23,10 +25,26 @@ describe('survival run', () => {
       expect(run.phase).toBe('settling');
       expect(run.hurt(100)).toBe(false);
       run.finishWave();
-      expect(run.phase).toBe(wave === 2 ? 'won' : 'shop');
-      if (wave < 2) run.startWave();
+      expect(run.phase).toBe('shop');
+      run.startWave();
     }
     expect(run.startWave()).toBe(false);
+  });
+
+  it.each<Upgrade>(['damage', 'attackSpeed', 'movementSpeed'])('caps %s purchases without charging for maxed choices', upgrade => {
+    const run = new Run();
+    for (let i = 0; i < 100; i++) {
+      shop(run);
+      run.scrap = 100_000;
+      const maxed = run.maxed(upgrade);
+      expect(run.buy(upgrade)).toBe(!maxed);
+      if (maxed) expect(run.scrap).toBe(100_000);
+    }
+    expect(run.maxed(upgrade)).toBe(true);
+    expect(run.damage).toBeLessThanOrEqual(120);
+    expect(run.speed).toBeLessThanOrEqual(360);
+    expect(run.attackMs).toBeGreaterThanOrEqual(150);
+    expect(run.startWave()).toBe(true);
   });
 
   it('grants one second of invulnerability across simultaneous and sustained contacts', () => {
