@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#eee9dd" />
-    <meta name="description" content="Chatastrophe — a paper-and-ink robot survival game. M0 visual preview." />
+    <meta name="description" content="Survive three waves of rogue robots in Chatastrophe, a standalone paper-and-ink arena survival game." />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <title>Chatastrophe · The reclamation yard</title>
   </head>
@@ -12,21 +12,57 @@
     <main class="workbench">
       <header class="masthead">
         <div class="identity"><span class="identity-mark" aria-hidden="true">C<span>•</span></span><div><h1>CHATASTROPHE</h1><p>A little machine. A world of trouble.</p></div></div>
-        <span class="edition">FIELD STUDY <b>00</b></span>
+        <span class="edition">SURVIVAL TEST <b>01</b></span>
       </header>
-      <section class="preview" aria-label="Game visual preview">
-        <div class="scene-heading"><div><span class="eyebrow">OVERGROWN INDUSTRIAL ARENA</span><h2>The reclamation yard</h2></div><span class="preview-badge">M0 / VISUAL PREVIEW</span></div>
-        <div id="game-container" role="img" aria-label="A paper arena with a small yellow scavenger robot, a teal skittering drone, and a rust-colored industrial hauler." aria-describedby="preview-description">
-          <p id="load-status" class="load-status" role="status">Unfolding the paper world…</p>
+      <section class="arena" aria-label="Arena survival game">
+        <div class="scene-heading"><div><span class="eyebrow">OVERGROWN INDUSTRIAL ARENA</span><h2>The reclamation yard</h2></div><span class="game-badge">STANDALONE / 3 WAVES</span></div>
+        <div class="stage">
+          <div id="game-container" tabindex="0" role="application" aria-label="Chatastrophe arena. Move with WASD or arrow keys. Attacks fire automatically. Escape pauses." aria-describedby="game-description">
+            <p id="load-status" class="load-status" role="status">Unfolding the paper world…</p>
+          </div>
+          <div id="hud" class="hud" hidden>
+            <div class="health-stat"><span class="stat-label">HULL</span><strong id="health-value">100 / 100</strong><progress id="health-bar" max="100" value="100" aria-label="Player health"></progress></div>
+            <div><span class="stat-label">WAVE</span><strong id="wave-value">1 / 3</strong></div>
+            <div><span class="stat-label">SURVIVE</span><strong id="time-value">0:30</strong></div>
+            <div><span class="stat-label">SCRAP</span><strong id="scrap-value">0</strong></div>
+            <div><span class="stat-label">DEFEATED</span><strong id="kills-value">0</strong></div>
+          </div>
+          <div id="game-menu" class="game-menu" hidden>
+            <section id="panel-ready" class="menu-panel" aria-labelledby="ready-title">
+              <span class="eyebrow">FIELD MANUAL / 01</span><h3 id="ready-title">Small machine.<br />Long afternoon.</h3>
+              <p>The yard has woken up. Keep your scavenger running through three waves of rogue robots.</p>
+              <div class="control-note"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to move</span><span>Auto-aim does the shooting. You do the dodging.</span></div>
+              <button id="start-run" class="primary" type="button">Enter the yard →</button>
+              <small>30s → 45s → 60s · Collect scrap · Upgrade between waves</small>
+            </section>
+            <section id="panel-shop" class="menu-panel shop-panel" aria-labelledby="shop-title" hidden>
+              <span class="eyebrow">A MOMENT TO REBUILD</span><h3 id="shop-title">Still running.</h3>
+              <p>Hull fully repaired. Fit one upgrade before heading back out.</p>
+              <strong id="shop-wallet" class="wallet">0 scrap available</strong>
+              <div class="upgrades">
+                <button id="buy-damage" type="button"><span class="upgrade-symbol" aria-hidden="true">↗</span><b>Damage</b><span>+6 per shot</span><strong class="price">60 scrap</strong></button>
+                <button id="buy-attackSpeed" type="button"><span class="upgrade-symbol" aria-hidden="true">»</span><b>Attack speed</b><span>25% shorter cooldown</span><strong class="price">60 scrap</strong></button>
+                <button id="buy-movementSpeed" type="button"><span class="upgrade-symbol" aria-hidden="true">↝</span><b>Move speed</b><span>15% faster movement</span><strong class="price">60 scrap</strong></button>
+              </div>
+              <p id="shop-status" class="shop-status" role="status">Buy one upgrade, or save your scrap and continue.</p>
+              <button id="next-wave" class="primary" type="button">Start wave 2 →</button>
+            </section>
+            <section id="panel-lost" class="menu-panel" aria-labelledby="lost-title" hidden>
+              <span class="eyebrow">SIGNAL LOST</span><h3 id="lost-title">A little too much trouble.</h3><p>The yard wins this one. A fresh scavenger is ready to try.</p><p id="lost-summary" class="result-summary"></p><button id="try-again" class="primary" type="button">Try again →</button>
+            </section>
+            <section id="panel-won" class="menu-panel" aria-labelledby="won-title" hidden>
+              <span class="eyebrow">THREE WAVES / ONE TOUGH MACHINE</span><h3 id="won-title">The last one running.</h3><p>The rogue machines are quiet. The afternoon is yours.</p><p id="won-summary" class="result-summary"></p><p class="replay-note">Use “Restart run” for another trip through the yard.</p>
+            </section>
+            <section id="panel-paused" class="menu-panel" aria-labelledby="paused-title" hidden>
+              <span class="eyebrow">TAKE A BREATHER</span><h3 id="paused-title">Tools down.</h3><p>Your run is paused. Nothing moves until you return.</p><button id="resume" class="primary" type="button">Resume run →</button>
+            </section>
+          </div>
         </div>
-        <div class="preview-toolbar">
-          <p id="scene-status" role="status">Preparing the yard…</p>
-          <div class="preview-controls"><label><input id="annotations" type="checkbox" checked disabled /> Field notes</label><button id="motion" type="button" disabled aria-pressed="false">Pause idle</button><button id="reset" type="button" disabled>Reset preview <span aria-hidden="true">↺</span></button></div>
-        </div>
+        <div class="game-toolbar"><p id="scene-status" role="status">Preparing the yard…</p><div class="game-controls"><button id="pause" type="button" disabled aria-pressed="false">Pause</button><button id="new-run" type="button" disabled>Restart run ↺</button></div></div>
       </section>
-      <footer class="field-notes"><p id="preview-description"><strong>A world left running.</strong> Quiet ruins. Curious little machines. Something bigger in the weeds.</p><p class="scope-note">ART &amp; SCALE STUDY<span>Static enemy samples · movement and combat come in M1</span></p></footer>
+      <footer class="field-notes"><p id="game-description"><strong>Keep moving. Make something of the pieces.</strong> Robots drop scrap. Nearby scrap comes to you. Survive the timer and everything left gets banked.</p><p class="scope-note">WASD / ARROWS · ESC TO PAUSE<span>Three waves · A fresh start on every restart</span></p></footer>
     </main>
-    <noscript>This preview needs JavaScript enabled.</noscript>
+    <noscript>This game needs JavaScript enabled.</noscript>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

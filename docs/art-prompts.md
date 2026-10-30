@@ -1,4 +1,10 @@
-# M0 artwork prompts
+# Artwork prompts
+
+The M1 directional player sheet and its exact built-in generation prompt are
+documented in [scavenger-animation.md](scavenger-animation.md).
+Enemy movement sheets, the hauler orientation corrections, and the custom scrap,
+projectile, and spawn-warning PNG prompts are in
+[enemy-and-gameplay-art.md](enemy-and-gameplay-art.md).
 
 Generated with the built-in image-generation tool on 2026-10-30. These are the simplified top-down variants selected after the owner's feedback. The earlier detailed/front-facing variants are not used. All raster assets are copied into the project; no remote runtime image dependency exists.
 
@@ -27,5 +33,13 @@ Original tiny 2D TOP-DOWN arena survival game asset. Extremely SIMPLE hand-drawn
 Saved to `public/assets/hauler.png`. Transparent background: true.
 
 Original tiny 2D TOP-DOWN arena survival game asset. Extremely SIMPLE hand-drawn doodle cartoon like a black marker drawing with flat color fill. Thick slightly wobbly black outlines. Very few large shapes. No shading, NO rendering, NO fine mechanical detail, NO weathering texture, NO gradients, NO realistic materials, NO 3D. Must be instantly legible at 64 pixels. Orthographic camera looking DOWN from above, no horizon, no low camera angle. One isolated heavy enemy industrial ROBOT sprite on transparent background, centered with margin. TOP-DOWN overhead view, squat wide rust-orange rectangular shell, two short broad charcoal tracks at sides, one oversized simple claw extending forward on its left, one small piston on right, a narrow coral red sensor mark on front edge. Maximum 12 main shapes, no machinery detailing, no texture, only two scratch marks. Broad asymmetrical threatening silhouette contrasts with round friendly player. Flat rust-orange, charcoal, off-white. No shadow, no ground, no text.
+
+## hover-drone — M1
+
+Saved to `public/assets/hover-drone.png`. Transparent background: true.
+Generated with the built-in image-generation tool and approved by the owner
+on 2026-10-30 as the basic hovering enemy. The existing three robot PNGs
+were used as style references. See the [concept record](concepts/hover-drone-v1.md)
+for the exact generation prompt and silhouette bounds.
 
 

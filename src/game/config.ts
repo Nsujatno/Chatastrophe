@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { ARENA, PAPER, VIEW } from './settings';
-import { PreviewScene } from './scenes/PreviewScene';
+import { ArenaScene } from './scenes/ArenaScene';
 
 export function createGameConfig(): Phaser.Types.Core.GameConfig {
   return {
@@ -21,6 +21,6 @@ export function createGameConfig(): Phaser.Types.Core.GameConfig {
       arcade: { gravity: { x: 0, y: 0 }, width: ARENA.width, height: ARENA.height, debug: false },
     },
     audio: { noAudio: true },
-    scene: [PreviewScene],
+    scene: [ArenaScene],
   };
 }

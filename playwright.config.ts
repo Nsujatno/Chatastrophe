@@ -5,6 +5,8 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
+  workers: 2,
+  timeout: 40_000,
   use: {
     baseURL: 'http://127.0.0.1:4173',
     ...devices['Desktop Chrome'],
@@ -14,7 +16,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   webServer: {
-    command: 'npm run dev -- --port 4173',
+    command: 'npm run dev -- --mode test --port 4173',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
   },
