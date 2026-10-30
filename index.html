@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#eee9dd" />
+    <meta name="description" content="Chatastrophe — a paper-and-ink robot survival game. M0 visual preview." />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <title>Chatastrophe · The reclamation yard</title>
+  </head>
+  <body>
+    <main class="workbench">
+      <header class="masthead">
+        <div class="identity"><span class="identity-mark" aria-hidden="true">C<span>•</span></span><div><h1>CHATASTROPHE</h1><p>A little machine. A world of trouble.</p></div></div>
+        <span class="edition">FIELD STUDY <b>00</b></span>
+      </header>
+      <section class="preview" aria-label="Game visual preview">
+        <div class="scene-heading"><div><span class="eyebrow">OVERGROWN INDUSTRIAL ARENA</span><h2>The reclamation yard</h2></div><span class="preview-badge">M0 / VISUAL PREVIEW</span></div>
+        <div id="game-container" role="img" aria-label="A paper arena with a small yellow scavenger robot, a teal skittering drone, and a rust-colored industrial hauler." aria-describedby="preview-description">
+          <p id="load-status" class="load-status" role="status">Unfolding the paper world…</p>
+        </div>
+        <div class="preview-toolbar">
+          <p id="scene-status" role="status">Preparing the yard…</p>
+          <div class="preview-controls"><label><input id="annotations" type="checkbox" checked disabled /> Field notes</label><button id="motion" type="button" disabled aria-pressed="false">Pause idle</button><button id="reset" type="button" disabled>Reset preview <span aria-hidden="true">↺</span></button></div>
+        </div>
+      </section>
+      <footer class="field-notes"><p id="preview-description"><strong>A world left running.</strong> Quiet ruins. Curious little machines. Something bigger in the weeds.</p><p class="scope-note">ART &amp; SCALE STUDY<span>Static enemy samples · movement and combat come in M1</span></p></footer>
+    </main>
+    <noscript>This preview needs JavaScript enabled.</noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
