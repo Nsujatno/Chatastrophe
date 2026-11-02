@@ -13,6 +13,7 @@
       <header class="masthead">
         <div class="identity"><span class="identity-mark" aria-hidden="true">C<span>•</span></span><h1>Chatastrophe</h1></div>
       </header>
+      <div class="play-layout">
       <section class="arena" aria-label="Arena survival game">
         <div id="game-shell">
         <div class="stage">
@@ -53,7 +54,7 @@
             </section>
           </div>
         </div>
-        <details id="active-changes" class="active-changes" hidden><summary id="active-name"></summary><p id="active-description"></p></details>
+        <section id="active-changes" class="active-changes" aria-labelledby="active-name" hidden><h2 id="active-name"></h2><p id="active-description"></p></section>
         <div class="game-toolbar">
           <p id="scene-status" role="status">Loading…</p>
           <div class="game-controls">
@@ -71,6 +72,8 @@
         <p id="fullscreen-status" class="fullscreen-status" role="status"></p>
         </div>
       </section>
+      </div>
+      <div id="developer-tools"></div>
     </main>
     <noscript>This game needs JavaScript enabled.</noscript>
     <script type="module" src="/src/main.ts"></script>

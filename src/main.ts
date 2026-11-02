@@ -8,6 +8,7 @@ const game = new Phaser.Game(createGameConfig());
 const chat = new GameChat(() => {
   const scene = game.scene.keys.ArenaScene as ArenaScene | undefined;
   return scene?.sabotage ? { manager: scene.sabotage, phase: scene.run.phase, paused: scene.paused,
+    hold: (held: boolean) => { scene.directorPending = held; },
     typing: (focused: boolean) => {
       scene.input.keyboard!.enabled = !focused;
       if (focused) scene.input.keyboard!.disableGlobalCapture(); else scene.input.keyboard!.enableGlobalCapture();

@@ -2,10 +2,26 @@
 
 Chat gives suggestions in ordinary messages during wave N. The server collects
 them for wave N+1. There is no `!command` parser and no immediate chat-triggered
-effect. M4 supplies the transport and inbox; M5 will interpret batches, validate
-composed rules, announce approved changes and activate them at the wave boundary.
-Until M5, the panel explicitly says processing is not connected. Raw suggestions
-never enter the rule engine. Standalone gameplay and manual debug rules still work.
+effect. At the wave-end break, the AI Director turns that round's chat into up to
+three validated rulesets with concise bullet descriptions and opens a 30-second vote. Viewers type `1`, `2`, `3`,
+or `!vote 1` (etc.) in the connected channel. Only the winning validated ruleset
+enters the shared rule queue for the next wave. Standalone gameplay and manual
+debug rules still work.
+
+Set server-only `OPENAI_API_KEY` in `.env` and restart `npm run server` to enable
+generation. `OPENAI_MODEL` defaults to `gpt-4.1-mini`. The AI receives a bounded,
+deduplicated set of up to 200 messages from the previous wave, the game context
+and the supported primitive catalog. It cannot execute code. The existing
+20-idea suggestion inbox remains separately rate limited; the director's round
+buffer also captures messages outside that inbox's contribution cooldown.
+
+Voting uses Twitch viewer IDs, with one vote per viewer per round. Ties choose
+the first tied option; no votes means no chat changes. Results show the actual
+validated effects and their destination wave. Choose **Continue to upgrades**,
+then start the next wave. **Skip vote** cancels generation or voting; **Cancel
+chat changes** clears queued/active effects. Restart, death and moving past the
+target wave invalidate pending work. AI failures or disconnects release the
+break so the streamer can continue. Rules expire at the next wave's end.
 
 ## Private setup
 
@@ -18,12 +34,21 @@ Use Node 22.18+ or Node 24. Install dependencies with `npm install`.
    variables for secrets and never paste secrets into chat or source files.
 3. In one terminal, start `npm run server` yourself. This user-launched entry
    point loads `.env`; automated checks do not launch it.
-4. In another terminal, run `npm run dev`, open `http://localhost:5173`, expand
-   **Twitch chat**, and click **Connect Twitch**. Allow the popup and authorize
+4. In another terminal, run `npm run dev`, open `http://localhost:5173`, and click
+   **Connect Twitch** in the right-hand chat panel. Allow the popup and authorize
    the streamer account whose own channel will provide suggestions.
-5. Start a wave and send a normal idea in that channel. It should appear as a
-   suggestion for the following wave, attributed to its viewer. Collection closes
-   when combat ends. Restarting or dying clears the batch.
+5. Send a message in that channel. It should appear in the chat feed, attributed
+   to its viewer, even before starting a run. During a wave, eligible messages
+   also increase the following wave's suggestion count. Collection closes when
+   combat ends. Restarting or dying clears the suggestion batch.
+
+Chat stays visible beside the arena on desktop and moves below it on narrow
+screens. The read-only live feed keeps the latest 100 messages for this session,
+including messages that are not collected as suggestions. It restores after a
+browser reconnect and continues across game restarts; disconnecting chat or
+switching connections clears it. Scrolling up to read does not jump to the bottom
+when a message arrives. The test composer appears only in local test mode; the
+app does not send messages to Twitch.
 
 Twitch's HTTP redirect exception uses the literal hostname `localhost`; an HTTP
 redirect to `127.0.0.1` is rejected. Set `PUBLIC_ORIGIN=http://localhost:5173` in

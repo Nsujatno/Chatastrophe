@@ -4,15 +4,18 @@ import { io, type Socket } from 'socket.io-client';
 import { createGateway } from '../../server/gateway';
 import { configFromEnvironment } from '../../server/config';
 import { CHAT_SCOPE } from '../../server/twitch';
-import type { InboxSnapshot } from '../../src/shared/chat';
+import { CHAT_LIMITS, type ChatMessage, type InboxSnapshot } from '../../src/shared/chat';
+import type { GenerateRules } from '../../server/director';
+import type { DirectorState } from '../../src/shared/director';
+import { DIRECTOR_FIXTURES } from '../helpers/director';
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture() {
+async function fixture(generate?: GenerateRules) {
   let now = Date.now();
   const config = configFromEnvironment({ MOCK_CHAT: 'true', TWITCH_CLIENT_ID: 'fixture-client', TWITCH_CLIENT_SECRET: 'fixture-private' });
   const request: typeof fetch = async input => String(input).endsWith('/token') ? new Response(JSON.stringify({ access_token: 'fixture-access', refresh_token: 'fixture-refresh' })) : new Response(JSON.stringify({ client_id: 'fixture-client', user_id: '1234', login: 'fixture_channel', scopes: [CHAT_SCOPE] }));
-  const gateway = createGateway(config, { now: () => now, request });
+  const gateway = createGateway(config, { now: () => now, request, generate });
   await new Promise<void>(resolve => gateway.server.listen(0, '127.0.0.1', resolve));
   config.origin = `http://127.0.0.1:${(gateway.server.address() as AddressInfo).port}`;
   cleanup.push(() => gateway.close());
@@ -22,14 +25,39 @@ async function fixture() {
   };
   return { config, gateway, session, advance: (ms: number) => { now += ms; } };
 }
-async function connect(origin: string, csrf: string, cookie: string): Promise<Socket> {
+async function connect(origin: string, csrf: string, cookie: string, listen?: (socket: Socket) => void): Promise<Socket> {
   const socket = io(origin, { transports: ['websocket'], auth: { csrf }, extraHeaders: { Origin: origin, Cookie: cookie }, reconnection: false, forceNew: true });
   cleanup.push(() => { socket.disconnect(); });
+  listen?.(socket);
   await new Promise<void>((resolve, reject) => { socket.once('connect', resolve); socket.once('connect_error', reject); });
   return socket;
 }
 const state = () => ({ instanceId: '12345678-1234-4234-9234-123456789abc', runId: 1, wave: 1, phase: 'playing', paused: false });
 const tick = () => new Promise(resolve => setTimeout(resolve, 25));
+
+it('turns a full round of chat into session-isolated options and counts authenticated live votes', async () => {
+  let inputMessages: string[] = [];
+  const f = await fixture(async ({ messages }) => { inputMessages = messages.map(message => message.text); return DIRECTOR_FIXTURES; });
+  const a = await f.session(); const b = await f.session();
+  const one = await connect(f.config.origin, a.data.csrf, a.cookie); const two = await connect(f.config.origin, b.data.csrf, b.cookie);
+  let director: DirectorState | null = null; let other: DirectorState | null = null;
+  one.on('director:state', value => { director = value; }); two.on('director:state', value => { other = value; });
+  const post = (text: string, viewer = 'alice') => fetch(f.config.origin + '/api/mock/message', { method: 'POST', headers: { Origin: f.config.origin, Cookie: a.cookie, 'X-CSRF-Token': a.data.csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ viewer, text }) });
+  await fetch(f.config.origin + '/api/mock/connect', { method: 'POST', headers: { Origin: f.config.origin, Cookie: a.cookie, 'X-CSRF-Token': a.data.csrf } });
+  one.emit('game:state', state()); await tick();
+  for (const idea of ['Exploding robots', 'Faster shots', 'Tiny reinforcements']) await post(idea);
+  expect(inputMessages).toEqual([]);
+  one.emit('game:state', { ...state(), phase: 'shop' }); await tick();
+  expect(inputMessages).toEqual(['Exploding robots', 'Faster shots', 'Tiny reinforcements']);
+  expect(director).toMatchObject({ state: 'voting', targetWave: 2, source: 'mock', votes: [0, 0, 0] }); expect(other).toBeNull();
+  await post('2'); await post('1'); await post('!vote 2', 'bob'); await tick();
+  expect(director).toMatchObject({ votes: [0, 2, 0] });
+  f.advance(30_001); one.emit('game:state', { ...state(), phase: 'shop' }); await tick();
+  expect(director).toMatchObject({ state: 'complete', winner: 1 });
+  expect(JSON.stringify(director)).not.toMatch(/fixture-private|fixture-access|fixture-refresh/);
+  one.emit('game:state', { ...state(), runId: 2 }); await tick();
+  expect(director).toMatchObject({ state: 'collecting', runId: 2, messageCount: 0 });
+});
 
 it('authenticates sockets and isolates next-wave suggestions without exposing OAuth credentials', async () => {
   const f = await fixture(); const a = await f.session(); const b = await f.session();
@@ -55,6 +83,31 @@ it('authenticates sockets and isolates next-wave suggestions without exposing OA
   expect(inbox.batches[0].state).toBe('ready');
   expect((await post('/api/mock/message', { viewer: 'fake', text: 'More robots', source: 'twitch' })).status).toBe(400);
   one.emit('game:state', { ...state(), runId: 2 }); await tick(); expect(inbox.batches).toEqual([]);
+});
+
+it('streams bounded chat outside combat, isolates history and clears it on disconnect', async () => {
+  const f = await fixture(); const a = await f.session(); const b = await f.session();
+  const messages: ChatMessage[] = []; const other: ChatMessage[] = [];
+  const one = await connect(f.config.origin, a.data.csrf, a.cookie, socket => socket.on('chat:message', message => messages.push(message)));
+  await connect(f.config.origin, b.data.csrf, b.cookie, socket => socket.on('chat:message', message => other.push(message)));
+  const post = (path: string, data = {}) => fetch(f.config.origin + path, { method: 'POST', headers: { Origin: f.config.origin, Cookie: a.cookie, 'X-CSRF-Token': a.data.csrf, 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  await post('/api/mock/connect');
+  for (let index = 0; index < CHAT_LIMITS.history + 5; index++) {
+    expect(await (await post('/api/mock/message', { viewer: 'viewer', text: `!hello ${index}` })).json()).toEqual({ accepted: false });
+  }
+  await tick();
+  expect(messages).toHaveLength(CHAT_LIMITS.history + 5);
+  expect(messages[0]).toMatchObject({ text: '!hello 0', viewer: 'viewer', source: 'mock' });
+  expect(other).toEqual([]);
+  one.disconnect(); await tick();
+  let history: ChatMessage[] = [];
+  await connect(f.config.origin, a.data.csrf, a.cookie, socket => socket.on('chat:history', value => { history = value; }));
+  await tick();
+  expect(history).toHaveLength(CHAT_LIMITS.history);
+  expect(history[0].text).toBe('!hello 5');
+  expect(history.at(-1)!.text).toBe(`!hello ${CHAT_LIMITS.history + 4}`);
+  await post('/api/twitch/disconnect'); await tick();
+  expect(history).toEqual([]);
 });
 
 it('rejects missing or cross-session credentials, wrong origins and unauthorized controls', async () => {

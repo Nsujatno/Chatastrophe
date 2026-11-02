@@ -1,6 +1,7 @@
 export interface ServerConfig {
   origin: string; host: string; port: number; clientId: string; clientSecret: string;
   mockChat: boolean; cli: boolean; eventSubUrl: string; subscriptionsUrl: string;
+  openaiApiKey: string; openaiModel: string;
 }
 export function configFromEnvironment(env: NodeJS.ProcessEnv): ServerConfig {
   const origin = new URL(env.PUBLIC_ORIGIN ?? 'http://localhost:5173');
@@ -12,6 +13,7 @@ export function configFromEnvironment(env: NodeJS.ProcessEnv): ServerConfig {
   return {
     origin: origin.origin, host: env.HOST ?? '127.0.0.1', port: Number(env.PORT ?? 3001),
     clientId: env.TWITCH_CLIENT_ID ?? '', clientSecret: env.TWITCH_CLIENT_SECRET ?? '', mockChat, cli,
+    openaiApiKey: env.OPENAI_API_KEY ?? '', openaiModel: env.OPENAI_MODEL ?? 'gpt-4.1-mini',
     eventSubUrl: cli ? 'ws://127.0.0.1:8080/ws' : 'wss://eventsub.wss.twitch.tv/ws',
     subscriptionsUrl: cli ? 'http://127.0.0.1:8080/eventsub/subscriptions' : 'https://api.twitch.tv/helix/eventsub/subscriptions',
   };

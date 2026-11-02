@@ -241,3 +241,37 @@ export function describeRuleset(set: Ruleset): string[] {
     return `${trigger}${conditions.length ? ` (${conditions.join(', ')})` : ''}, ${actions.join('; ')}.${rule.cooldownMs ? ` At most once every ${seconds(rule.cooldownMs)}.` : ''}`;
   });
 }
+
+export function summarizeRuleset(set: Ruleset): string[] {
+  return set.rules.map(rule => {
+    const enemy = rule.filters.find(filter => filter.type === 'enemy_type');
+    const tag = rule.filters.find(filter => filter.type === 'tag');
+    const subject = enemy?.type === 'enemy_type' ? enemyName(enemy.value) : tag?.type === 'tag' ? `${tag.value} robot` : 'robot';
+    const trigger = rule.trigger.type === 'interval' ? `Every ${rule.trigger.everyMs / 1000}s` : {
+      enemy_died: `${subject} destroyed`, enemy_spawned: `${subject} appears`,
+      player_damaged: 'When you get hit', wave_started: 'Wave starts',
+    }[rule.trigger.type];
+    const conditions = rule.filters.flatMap(filter => filter.type === 'chance' ? [`${percent(filter.value)}% chance`]
+      : filter.type === 'health_below' ? [`below ${filter.percent}% HP`] : []);
+    const actions = rule.actions.map(action => {
+      if (action.type === 'spawn') {
+        const size = action.profile.size < 0.8 ? 'tiny ' : action.profile.size > 1.2 ? 'big ' : '';
+        return `${action.count} ${size}${enemyName(action.enemyType)}${action.count === 1 ? '' : 's'} appear${action.count === 1 ? 's' : ''}${action.at.anchor === 'player' ? ' near you' : ''}`;
+      }
+      if (action.type === 'explode') return `explosion (${action.damage} damage)`;
+      const target = action.target;
+      const who = target.kind === 'player' || (target.kind === 'event_entity' && rule.trigger.type === 'player_damaged') ? 'you'
+        : target.kind === 'event_entity' ? 'it' : `${target.area ? 'nearby ' : ''}${target.enemyType ? enemyName(target.enemyType) + 's' : 'robots'}`;
+      const amount = percent(action.multiplier - 1);
+      const effect = {
+        move_speed: `${amount}% ${action.multiplier > 1 ? 'faster movement' : 'slower movement'}`,
+        projectile_damage: `${amount}% ${action.multiplier > 1 ? 'more' : 'less'} shot damage`,
+        attack_interval: `${percent(1 / action.multiplier - 1)}% ${action.multiplier < 1 ? 'faster' : 'slower'} shooting`,
+        contact_damage: `${amount}% ${action.multiplier > 1 ? 'harder' : 'weaker'} hits`,
+        size: `${amount}% ${action.multiplier > 1 ? 'bigger' : 'smaller'}`,
+      }[action.stat];
+      return `${who}: ${effect}${action.durationMs === 'wave' ? '' : ` for ${action.durationMs / 1000}s`}`;
+    });
+    return `${trigger}${conditions.length ? ` (${conditions.join(', ')})` : ''} → ${actions.join(' + ')}`;
+  });
+}

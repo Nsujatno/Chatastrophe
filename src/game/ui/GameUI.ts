@@ -68,7 +68,7 @@ export class GameUI {
       box.hidden = !queued;
       if (queued) {
         const heading = document.createElement('strong');
-        heading.textContent = `Test changes for wave ${queued.wave}: ${queued.data.name}`;
+        heading.textContent = `Changes for wave ${queued.wave}: ${queued.data.name}`;
         const list = document.createElement('ul');
         for (const change of describeRuleset(queued.data)) { const row = document.createElement('li'); row.textContent = change; list.append(row); }
         box.append(heading, list);
@@ -76,7 +76,7 @@ export class GameUI {
     }
     const active = element('active-changes');
     active.hidden = !this.sabotage.active;
-    element('active-name').textContent = this.sabotage.active ? `Test changes · ${this.sabotage.active.data.name} · this wave` : '';
+    element('active-name').textContent = this.sabotage.active ? `${this.sabotage.active.data.name} · this wave` : '';
     element('active-description').textContent = this.sabotage.active ? describeRuleset(this.sabotage.active.data).join(' ') : '';
   }
 

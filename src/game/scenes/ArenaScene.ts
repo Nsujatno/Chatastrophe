@@ -24,6 +24,7 @@ export class ArenaScene extends Phaser.Scene {
   pickups!: Phaser.GameObjects.Group;
   warnings: Warning[] = [];
   paused = false;
+  directorPending = false;
   sabotage!: SabotageManager;
   ruleWarnings = new Set<Phaser.GameObjects.GameObject>();
   private debug?: DebugUI;
@@ -42,6 +43,7 @@ export class ArenaScene extends Phaser.Scene {
     this.run = new Run();
     this.warnings = [];
     this.paused = false;
+    this.directorPending = false;
     this.spawnRemaining = 0;
     this.attackRemaining = 0;
     this.settling = false;
@@ -187,6 +189,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   startWave(): void {
+    if (this.directorPending) return;
     if (!this.run.startWave()) return;
     this.spawnRemaining = 250;
     this.attackRemaining = 0;

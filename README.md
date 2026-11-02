@@ -4,18 +4,37 @@ A standalone top-down arena survival game in a paper-and-ink robot world.
 Guide a yellow scavenger through endless waves of rogue machines, collect scrap,
 and fit an upgrade between waves.
 
-**Current milestone: M4 — Twitch connection and next-wave suggestion collection.**
-Chat gives ideas in ordinary messages during wave N. The gateway collects them
-for wave N+1; it does not trigger immediate effects or parse sabotage commands.
-AI processing, rule announcements and activation are M5. Six manual presets,
-three composition examples and custom JSON already share the validated runtime.
+**Current milestone: M5 — AI Director with a 30-second chat vote.**
+Chat gives ideas in ordinary messages during wave N. At the break, the server
+sends that round's chat to OpenAI and validates up to three composed rulesets.
+Chat votes `1`, `2`, or `3` for 30 seconds; short bullet points explain the choices. The winner is announced and queued
+for wave N+1. Six manual presets, three composition examples and AI rules
+share the same validated runtime.
 Standalone gameplay needs no account, API key or backend; artwork is local.
 
-The developer build includes a clearly labeled manual sabotage queue. Timed
-pre-wave chat voting is deferred to M7.1. The optional local chat panel is visibly
-labeled as a test and never impersonates live Twitch or AI processing.
+The developer build includes a clearly labeled manual sabotage queue. The
+optional local chat panel is visibly labeled as a test. In normal development,
+its ideas still call the real AI; deterministic AI fixtures run only in tests.
+
+For AI, set `OPENAI_API_KEY` in the server's private `.env` and restart
+`npm run server`. `OPENAI_MODEL` defaults to `gpt-4.1-mini`. Run
+`node --experimental-strip-types scripts/check-director.mjs` for an optional
+real API check using three sample ideas (this makes one billable model request).
+Never put keys in `VITE_*` settings. The Vite frontend does not load `.env`.
+
+Each viewer gets one vote. Ties choose the first tied option; no votes means
+no chat changes. **Skip vote** releases the break immediately. After the result,
+select **Continue to upgrades**, then start the next wave. **Cancel chat changes**
+removes queued or active changes. All rules expire at wave end. Missing keys,
+timeouts, invalid AI output, or disconnects leave standalone play available.
+The director keeps up to 200 distinct, bounded messages from the previous wave;
+it makes one request per completed wave, not one per message.
 
 See [Twitch setup and testing](docs/twitch.md) to configure the optional gateway.
+The always-visible Twitch chat panel sits beside the arena on desktop and below
+it on narrow screens. Connect there to read incoming messages, including before
+a run and between waves. Next-wave suggestion counts appear beneath the feed;
+active rule descriptions stay visible beneath the arena without a dropdown.
 
 ## Play
 
@@ -199,4 +218,4 @@ the installed Phaser skills.
 
 Audio remains disabled. Production builds report non-blocking Phaser bundle-size
 and upstream Zod comment-annotation warnings. Live Twitch account verification
-is pending; AI processing, weapon variety and timed chat voting remain future work.
+is pending; weapon variety and expanded AI evaluation remain future work.

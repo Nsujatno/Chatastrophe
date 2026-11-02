@@ -19,7 +19,7 @@ export class DebugUI {
     summary.textContent = 'Test modifiers · presets and custom rules';
     this.root.append(summary);
     const note = document.createElement('p');
-    note.textContent = 'These are manual tests. Choose a preset, then click “Use next wave.” Editing pauses the game. Twitch suggestions are collected in the chat panel; processing is not connected yet.';
+    note.textContent = 'These are manual tests. Choose a preset, then click “Use next wave.” Editing pauses the game. The AI Director collects chat during waves and opens a 30-second vote between waves.';
     this.root.append(note);
     const presets = document.createElement('div');
     presets.className = 'debug-actions';
@@ -48,7 +48,7 @@ export class DebugUI {
     const inspectLabel = document.createElement('summary'); inspectLabel.textContent = 'Inspect test data';
     inspection.append(inspectLabel, this.inspection);
     this.root.append(controls, this.output, inspection);
-    document.querySelector('.arena')!.append(this.root);
+    document.getElementById('developer-tools')!.append(this.root);
     this.editor.value = JSON.stringify(PRESETS[0], null, 2);
     this.preview(false);
   }

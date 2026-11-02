@@ -4,23 +4,26 @@ import { readFile, realpath } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import { Server } from 'socket.io';
 import { z } from 'zod';
-import { CHAT_LIMITS, GameContextSchema, type ChatStatus, type GameContext, type NormalizedChat } from '../src/shared/chat.ts';
+import { CHAT_LIMITS, ChatMessageSchema, GameContextSchema, type ChatMessage, type ChatStatus, type GameContext, type NormalizedChat } from '../src/shared/chat.ts';
 import { SuggestionInbox } from './suggestions.ts';
 import { AuthError, CHAT_SCOPE, EventSub, TwitchAuth } from './twitch.ts';
 import type { ServerConfig } from './config.ts';
+import { DirectorRound, openAIGenerator, type GenerateRules } from './director.ts';
 
 interface Session {
-  id: string; csrf: string; touched: number; epoch: number; inbox: SuggestionInbox;
+  id: string; csrf: string; touched: number; epoch: number; inbox: SuggestionInbox; messages: ChatMessage[];
   status: ChatStatus; game?: GameContext; host?: string; state?: string; stateUntil?: number;
   auth?: TwitchAuth; wire?: EventSub; validateTimer?: ReturnType<typeof setInterval>;
+  director?: DirectorRound;
 }
 const COOKIE = 'chatastrophe_session';
 const random = () => randomBytes(32).toString('base64url');
 const same = (a: unknown, b: string) => typeof a === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const MockSchema = z.object({ viewer: z.string().regex(/^[a-zA-Z0-9_]{1,25}$/), text: z.string().min(1).max(CHAT_LIMITS.text) }).strict();
-export function createGateway(config: ServerConfig, dependencies: { request?: typeof fetch; now?: () => number; socket?: (url: string) => WebSocket } = {}) {
+export function createGateway(config: ServerConfig, dependencies: { request?: typeof fetch; now?: () => number; socket?: (url: string) => WebSocket; generate?: GenerateRules } = {}) {
   const request = dependencies.request ?? fetch;
   const now = dependencies.now ?? Date.now;
+  const generate = dependencies.generate ?? openAIGenerator(config.openaiApiKey, config.openaiModel, request);
   const sessions = new Map<string, Session>();
   const sessionFor = (req: IncomingMessage) => {
     const cookie = req.headers.cookie?.split(';').map(part => part.trim()).find(part => part.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1);
@@ -44,12 +47,22 @@ export function createGateway(config: ServerConfig, dependencies: { request?: ty
     session.epoch++; session.wire?.stop(); session.wire = undefined;
     clearInterval(session.validateTimer); session.validateTimer = undefined;
     session.auth?.clear(); session.auth = undefined; session.state = undefined;
+    session.messages = [];
+    if (session.host) io.to(session.host).emit('chat:history', session.messages);
     session.inbox.clear(); publishInbox(session);
+    session.director?.reset();
   };
   const routeChat = (session: Session, chat: NormalizedChat) => {
     session.touched = now();
+    if (!session.host) return false;
+    const parsed = ChatMessageSchema.safeParse({ id: `${chat.source}:${chat.id}`, viewer: chat.viewer, text: chat.text.trim(), source: chat.source, receivedAt: now() });
+    if (!parsed.success || session.messages.some(message => message.id === parsed.data.id)) return false;
+    session.messages.push(parsed.data);
+    if (session.messages.length > CHAT_LIMITS.history) session.messages.shift();
+    io.to(session.host).emit('chat:message', parsed.data);
+    const vote = session.director?.receive(chat, parsed.data) ?? false;
     const game = session.game;
-    if (!session.host || !game || !session.inbox.accept(chat, game)) return false;
+    if (!game || !session.inbox.accept(chat, game)) return vote;
     publishInbox(session);
     return true;
   };
@@ -86,7 +99,10 @@ export function createGateway(config: ServerConfig, dependencies: { request?: ty
     if (previous) io.sockets.sockets.get(previous)?.disconnect(true);
     session.game = undefined;
     socket.emit('chat:status', { ...session.status, serverTime: now() });
+    socket.emit('chat:history', session.messages);
     socket.emit('chat:suggestions', session.inbox.snapshot());
+    socket.emit('director:state', session.director?.state ?? null);
+    socket.on('director:skip', () => { if (session.host === socket.id) session.director?.skip(); });
     socket.on('game:state', input => {
       if (session.host !== socket.id) return;
       const result = GameContextSchema.safeParse(input);
@@ -94,6 +110,7 @@ export function createGateway(config: ServerConfig, dependencies: { request?: ty
       const prior = session.game; const state = result.data;
       if (prior?.instanceId === state.instanceId && (state.runId < prior.runId || (state.runId === prior.runId && state.wave < prior.wave))) return;
       session.game = state; session.touched = now(); session.inbox.setContext(state); publishInbox(session);
+      session.director?.context(state);
     });
     socket.on('disconnect', () => { if (session.host === socket.id) { session.host = undefined; session.game = undefined; } });
   });
@@ -116,7 +133,9 @@ export function createGateway(config: ServerConfig, dependencies: { request?: ty
       if (!session) {
         if (sessions.size >= 100) { json(res, 503, { error: 'Chat service is busy. Try later.' }); return; }
         const key = random();
-        session = { id: randomUUID(), csrf: random(), touched: now(), epoch: 0, inbox: new SuggestionInbox(now), status: { state: 'offline' } };
+        session = { id: randomUUID(), csrf: random(), touched: now(), epoch: 0, inbox: new SuggestionInbox(now), messages: [], status: { state: 'offline' } };
+        const created = session;
+        session.director = new DirectorRound(generate, state => { if (created.host) io.to(created.host).emit('director:state', state); }, now);
         sessions.set(key, session);
         res.setHeader('Set-Cookie', `${COOKIE}=${key}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200${config.origin.startsWith('https:') ? '; Secure' : ''}`);
       }

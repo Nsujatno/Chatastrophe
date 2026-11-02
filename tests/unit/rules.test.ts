@@ -183,6 +183,21 @@ describe('composable execution', () => {
     expect(world.spawns[0].profile.reward).toBe(0.25);
   });
 
+  it('splits a drone into two separated children even when its exact death position is beside the player', () => {
+    const { world, manager } = setup(definition([{ ...spawn, at: { anchor: 'event', radius: 0 } }], { type: 'enemy_died' }), () => 0.5);
+    world.actors = [];
+    world.actor.x = 500; world.actor.y = 400;
+    world.emit('enemy_died', enemy());
+    expect(manager.pendingCount).toBe(2);
+    manager.tick(750);
+    expect(world.spawns).toHaveLength(2);
+    for (const child of world.spawns) {
+      expect(child).toMatchObject({ kind: 'hover-drone', generation: 1, profile: { size: 0.6 } });
+      expect(Math.hypot(child.x - world.actor.x, child.y - world.actor.y)).toBeGreaterThanOrEqual(80);
+    }
+    expect(Math.hypot(world.spawns[0].x - world.spawns[1].x, world.spawns[0].y - world.spawns[1].y)).toBeGreaterThanOrEqual(60);
+  });
+
   it('reserves enough separation for large spawned haulers', () => {
     const samples = [0.3, 0.4, 0, 0, 0.37, 0.4, 0, 0, 0.6, 0.4, 0, 0];
     const { world, manager } = setup(definition([{ ...spawn, enemyType: 'hauler', profile: { size: 1.5 }, at: { anchor: 'arena' } }], { type: 'wave_started' }), () => samples.shift() ?? 0.9);

@@ -10,3 +10,7 @@ TWITCH_CLIENT_SECRET=
 # Keep test modes disabled when connecting real Twitch chat.
 MOCK_CHAT=false
 TWITCH_CLI_TEST=false
+
+# AI Director: server-only key, never use a VITE_ prefix.
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-mini
