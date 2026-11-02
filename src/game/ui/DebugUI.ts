@@ -1,5 +1,6 @@
 import { PRESETS } from '../rules/presets';
 import type { SabotageManager } from '../rules/SabotageManager';
+import { parseRuleset } from '../../shared/rules';
 
 interface Actions { pauseForInput(): void; releaseInput(): void; clear(): void; advance(): void; changed(): void }
 
@@ -18,7 +19,7 @@ export class DebugUI {
     summary.textContent = 'Test modifiers · presets and custom rules';
     this.root.append(summary);
     const note = document.createElement('p');
-    note.textContent = 'Choose a preset, then click “Use next wave.” Changes start with the next wave and end when it finishes. Editing pauses the game. Chat and AI are not connected yet.';
+    note.textContent = 'These are manual tests. Choose a preset, then click “Use next wave.” Editing pauses the game. Twitch suggestions are collected in the chat panel; processing is not connected yet.';
     this.root.append(note);
     const presets = document.createElement('div');
     presets.className = 'debug-actions';
@@ -60,11 +61,9 @@ export class DebugUI {
   }
 
   private preview(queue: boolean): void {
-    if (this.editor.value.length > 32_000) { this.output.textContent = 'These rules are too long. Keep them under 32,000 characters.'; return; }
-    let input: unknown;
-    try { input = JSON.parse(this.editor.value); }
-    catch (error) { this.output.textContent = `Could not read these rules. Check the JSON: ${error instanceof Error ? error.message : 'Check the punctuation.'}`; return; }
-    const result = this.manager.preview(input);
+    const parsed = parseRuleset(this.editor.value);
+    if (!parsed.ok) { this.output.textContent = parsed.errors.join('\n'); return; }
+    const result = this.manager.preview(parsed.data);
     if (!result.ok) { this.output.textContent = result.errors.join('\n'); return; }
     const queued = queue && this.manager.queue(result.data);
     this.output.textContent = `${queued ? `Ready for wave ${this.manager.wave + 1}` : 'Preview'} · ${result.data.name}\n${result.changes.join('\n')}`;

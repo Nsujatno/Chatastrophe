@@ -16,7 +16,7 @@ export const ENEMIES: Record<EnemyKind, { health: number; speed: number; width: 
   hauler: { health: 72, speed: 46, width: 126, radius: 38, damage: 20, scrap: 12 },
 };
 
-export const LIMITS = { enemies: 70, projectiles: 48, pickups: 140, warnings: 8, effects: 60 } as const;
+export { ENTITY_LIMITS as LIMITS } from '../../shared/rules';
 export const SPAWN = { warningMs: 750, safeDistance: 320, margin: 70 } as const;
 export const WEAPON = { range: 520, speed: 620, lifetimeMs: 1400 } as const;
 export const PROGRESSION = { minSpawnMs: 220, maxHealth: 3, damage: 120, attackMs: 150, speed: 360 } as const;

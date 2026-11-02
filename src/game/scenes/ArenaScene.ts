@@ -101,6 +101,8 @@ export class ArenaScene extends Phaser.Scene {
         for (const enemy of [...this.enemies.getChildren()] as Enemy[]) if (enemy.owner === owner) enemy.destroy();
       },
     });
+    const beginRuleFrame = (): void => this.sabotage.beginFrame();
+    this.events.on(Phaser.Scenes.Events.PRE_UPDATE, beginRuleFrame);
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.cameras.main.centerOn(this.player.x, this.player.y);
     this.physics.add.overlap(this.projectiles, this.enemies, (a, b) => {
@@ -147,6 +149,7 @@ export class ArenaScene extends Phaser.Scene {
       this.scale.off(Phaser.Scale.Events.FULLSCREEN_FAILED, fullscreenFailed);
       this.scale.off(Phaser.Scale.Events.FULLSCREEN_UNSUPPORTED, fullscreenFailed);
       this.sabotage.clear('restart');
+      this.events.off(Phaser.Scenes.Events.PRE_UPDATE, beginRuleFrame);
       this.debug?.destroy();
       this.debug = undefined;
       this.game.events.off(Phaser.Core.Events.BLUR, blur);

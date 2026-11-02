@@ -36,6 +36,7 @@ export class SabotageManager {
   now = 0;
   blocked = 0;
   private activeWave = false;
+  private closed = false;
   private pending: Pending[] = [];
   private events: GameEvent[] = [];
   private off: (() => void)[] = [];
@@ -43,12 +44,15 @@ export class SabotageManager {
   private lastTrigger = new Map<string, number>();
   private processing = false;
   private frameActions: number = RULE_LIMITS.actionsPerFrame;
+  private frameEvents: number = RULE_LIMITS.eventsPerFrame;
+  private framePrepared = false;
   private tokens: number = RULE_LIMITS.burst;
   private spawned = 0;
 
   constructor(readonly runId: number, private world: RuleWorld, private random: () => number = Math.random) {}
   get pendingCount(): number { return this.pending.length; }
   get listenerCount(): number { return this.off.length; }
+  get eventCount(): number { return this.events.length; }
   inspectPending() { return this.pending.map(p => ({ type: p.type, owner: p.owner, ...p.point, radius: p.radius, remainingMs: Math.max(0, p.due - this.now) })); }
   get remainingMs(): number { return this.active ? Math.max(0, this.active.deadline - this.now) : 0; }
   preview(input: unknown) {
@@ -57,6 +61,7 @@ export class SabotageManager {
   }
 
   queue(input: unknown, target = { runId: this.runId, wave: this.wave + 1 }): boolean {
+    if (this.closed) return this.reject('This run has ended. Prepare changes for the current run instead.');
     if (target.runId !== this.runId || target.wave !== this.wave + 1) return this.reject('Stale run/wave: queue changes for the next wave only.');
     const result = validateRuleset(input);
     if (!result.ok) { this.errors = result.errors; this.revision++; return false; }
@@ -66,16 +71,18 @@ export class SabotageManager {
   }
 
   beginWave(wave: number, durationMs: number): boolean {
-    if (this.activeWave || wave !== this.wave + 1 || !Number.isFinite(durationMs) || durationMs <= 0) return this.reject('Duplicate or stale wave activation.');
+    if (this.closed || this.activeWave || wave !== this.wave + 1 || !Number.isFinite(durationMs) || durationMs <= 0) return this.reject('Duplicate or stale wave activation.');
     this.wave = wave;
     this.activeWave = true;
     this.now = 0; this.tokens = RULE_LIMITS.burst; this.spawned = 0; this.frameActions = RULE_LIMITS.actionsPerFrame;
+    this.frameEvents = RULE_LIMITS.eventsPerFrame;
     const queued = this.queued;
     this.queued = undefined;
     if (queued?.wave === wave) {
       this.active = { data: queued.data, owner: `${this.runId}:${wave}`, deadline: durationMs };
+      const installed = this.active;
       for (const type of new Set(queued.data.rules.map(rule => rule.trigger.type))) {
-        if (type !== 'interval') this.off.push(this.world.subscribe(type, event => this.receive(event)));
+        if (type !== 'interval') this.off.push(this.world.subscribe(type, event => { if (this.active === installed) this.receive(event); }));
       }
       for (const rule of queued.data.rules) if (rule.trigger.type === 'interval') this.intervals.set(rule.id, rule.trigger.everyMs);
     }
@@ -86,7 +93,8 @@ export class SabotageManager {
   tick(deltaMs: number): void {
     if (!this.activeWave || !Number.isFinite(deltaMs) || deltaMs <= 0) return;
     this.now += deltaMs;
-    this.frameActions = RULE_LIMITS.actionsPerFrame;
+    this.beginFrame();
+    this.framePrepared = false;
     this.tokens = Math.min(RULE_LIMITS.burst, this.tokens + deltaMs / 1000 * RULE_LIMITS.refillPerSecond);
     this.modifiers.tick(this.now);
     if (!this.active) return;
@@ -106,6 +114,13 @@ export class SabotageManager {
     this.drain();
   }
 
+  beginFrame(): void {
+    if (this.framePrepared) return;
+    this.framePrepared = true;
+    this.frameActions = RULE_LIMITS.actionsPerFrame;
+    this.frameEvents = RULE_LIMITS.eventsPerFrame;
+  }
+
   clear(reason: 'manual' | 'wave_end' | 'death' | 'restart' = 'manual'): void {
     const owner = this.active?.owner;
     this.active = undefined;
@@ -115,7 +130,7 @@ export class SabotageManager {
     this.pending = []; this.events = []; this.intervals.clear(); this.lastTrigger.clear(); this.modifiers.clear();
     if (owner && reason !== 'wave_end') this.world.removeOwned(owner);
     if (reason !== 'manual') this.activeWave = false;
-    if (reason === 'death' || reason === 'restart') this.queued = undefined;
+    if (reason === 'death' || reason === 'restart') { this.queued = undefined; this.closed = true; }
     this.revision++;
   }
 
@@ -128,7 +143,8 @@ export class SabotageManager {
     this.drain();
   }
   private enqueue(event: GameEvent, onlyRule?: Rule): void {
-    if (!this.active || event.runId !== this.runId || event.wave !== this.wave || event.depth > RULE_LIMITS.chainDepth || event.reason === 'shutdown') return;
+    if (!this.active || event.runId !== this.runId || event.wave !== this.wave || !Number.isInteger(event.depth) || event.depth < 0 || event.depth > RULE_LIMITS.chainDepth || event.reason === 'shutdown') return;
+    if (event.position && (!Number.isFinite(event.position.x) || !Number.isFinite(event.position.y))) return;
     if (this.events.length >= RULE_LIMITS.events) { this.blocked++; return; }
     if (onlyRule) this.intervalEvents.set(event, onlyRule.id);
     this.events.push(event);
@@ -139,7 +155,8 @@ export class SabotageManager {
     if (this.processing || !this.active) return;
     this.processing = true;
     try {
-      while (this.active && this.events.length && this.frameActions > 0) {
+      while (this.active && this.events.length && this.frameActions > 0 && this.frameEvents > 0) {
+        this.frameEvents--;
         const event = this.events.shift()!;
         const active: Active = this.active;
         let eventActions = 0;
@@ -225,8 +242,10 @@ export class SabotageManager {
       if (point) this.schedule('explode', point, action.radius, owner => this.world.explode({ ...point, radius: action.radius, damage: action.damage, depth, owner }));
       return;
     }
-    const generation = event.subject && event.subject.kind !== 'player' ? event.subject.generation + 1 : 0;
-    if (generation > 1) { this.blocked++; return; }
+    const parent = event.subject?.kind !== 'player' ? event.subject : undefined;
+    if (parent && (!Number.isInteger(parent.generation) || parent.generation < 0)) { this.blocked++; return; }
+    const generation = parent ? parent.generation + 1 : 0;
+    if (generation > RULE_LIMITS.offspringGenerations) { this.blocked++; return; }
     const player = this.world.player();
     for (let i = 0; i < action.count; i++) {
       if (this.spawned >= RULE_LIMITS.waveSpawns || this.pending.length >= RULE_LIMITS.pending) { this.blocked++; break; }

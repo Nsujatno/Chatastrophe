@@ -606,3 +606,12 @@ summary { cursor: pointer; }
   }
 
 }
+
+.chat-panel { padding: 14px 18px; border-top: 1px solid #b7b5a6; font-size: 13px; }
+.chat-panel p, .chat-panel li { line-height: 1.5; }
+.chat-panel form { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0; }
+.chat-panel form strong { width: 100%; }
+.chat-panel input { background: var(--paper); color: var(--ink); border: 1px solid #969989; border-radius: 3px; padding: 8px; font: inherit; max-width: 100%; }
+.chat-panel input[aria-label="Test chat message"] { flex: 1; min-width: 180px; }
+#chat-suggestions { max-height: 350px; overflow-y: auto; overflow-wrap: anywhere; }
+#chat-activity:empty { display: none; }

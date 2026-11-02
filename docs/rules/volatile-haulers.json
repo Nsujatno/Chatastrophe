@@ -1,0 +1,21 @@
+{
+  "id": "volatile-haulers",
+  "name": "Volatile Haulers",
+  "rules": [{
+    "id": "hauler-down",
+    "trigger": { "type": "enemy_died" },
+    "filters": [
+      { "type": "enemy_type", "value": "hauler" },
+      { "type": "chance", "value": 0.6 }
+    ],
+    "cooldownMs": 1000,
+    "actions": [
+      { "type": "explode", "at": { "anchor": "event" }, "radius": 110, "damage": 12 },
+      {
+        "type": "modify",
+        "target": { "kind": "enemies", "area": { "at": { "anchor": "event" }, "radius": 250 } },
+        "stat": "move_speed", "multiplier": 1.4, "durationMs": 3000
+      }
+    ]
+  }]
+}

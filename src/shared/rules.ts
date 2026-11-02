@@ -2,10 +2,11 @@ import { z } from 'zod';
 
 export const ENEMY_KINDS = ['hover-drone', 'skitter', 'hauler'] as const;
 export type EnemyKind = typeof ENEMY_KINDS[number];
+export const ENTITY_LIMITS = { enemies: 70, projectiles: 48, pickups: 140, warnings: 8, effects: 60 } as const;
 export const RULE_LIMITS = {
   rules: 6, actions: 3, filters: 4, tags: 4, pending: 64, events: 128,
-  actionsPerEvent: 18, actionsPerFrame: 24, chainDepth: 4, waveSpawns: 48, chaos: 32, arenaMargin: 80,
-  burst: 32, refillPerSecond: 8, warningMs: 750,
+  actionsPerEvent: 18, actionsPerFrame: 24, eventsPerFrame: 128, chainDepth: 4, waveSpawns: 48, chaos: 32, arenaMargin: 80,
+  burst: 32, refillPerSecond: 8, warningMs: 750, jsonCharacters: 32_000, offspringGenerations: 1,
 } as const;
 
 export const STAT_LIMITS = {
@@ -44,6 +45,13 @@ const TriggerSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('interval'), everyMs: finite().int().min(1000).max(60_000) }).strict(),
 ]);
 export type TriggerType = z.infer<typeof TriggerSchema>['type'];
+export const TRIGGER_CONTEXTS = {
+  enemy_died: { enemy: true, position: true, liveEntity: null },
+  enemy_spawned: { enemy: true, position: true, liveEntity: 'enemy' },
+  player_damaged: { enemy: false, position: true, liveEntity: 'player' },
+  wave_started: { enemy: false, position: false, liveEntity: null },
+  interval: { enemy: false, position: false, liveEntity: null },
+} as const satisfies Record<TriggerType, { enemy: boolean; position: boolean; liveEntity: 'player' | 'enemy' | null }>;
 
 const FilterSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('enemy_type'), value: kind }).strict(),
@@ -51,6 +59,7 @@ const FilterSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('chance'), value: finite().min(0).max(1) }).strict(),
   z.object({ type: z.literal('health_below'), percent: finite().min(0).max(100) }).strict(),
 ]);
+const ENEMY_FILTERS: readonly z.infer<typeof FilterSchema>['type'][] = ['enemy_type', 'tag'];
 const SelectorSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('player') }).strict(),
   z.object({ kind: z.literal('event_entity') }).strict(),
@@ -79,8 +88,9 @@ const ActionSchema = z.discriminatedUnion('type', [
 ]);
 export type Action = z.infer<typeof ActionSchema>;
 export type Placement = z.infer<typeof PlacementSchema>;
+export const ACTION_COSTS = { spawn: { perUnit: 3 }, explode: { fixed: 5 }, modify: { fixed: 1 } } as const;
 export function actionCost(action: Action): number {
-  return action.type === 'spawn' ? action.count * 3 : action.type === 'explode' ? 5 : 1;
+  return action.type === 'spawn' ? action.count * ACTION_COSTS.spawn.perUnit : ACTION_COSTS[action.type].fixed;
 }
 
 const RuleSchema = z.object({
@@ -99,20 +109,19 @@ export const RulesetSchema = z.object({
     const issue = (message: string, tail: (string | number)[] = []) => ctx.addIssue({ code: 'custom', message, path: ['rules', index, ...tail] });
     if (ids.has(rule.id)) issue('Rule IDs must be unique', ['id']);
     ids.add(rule.id);
-    const enemyEvent = rule.trigger.type === 'enemy_died' || rule.trigger.type === 'enemy_spawned';
-    const hasPosition = enemyEvent || rule.trigger.type === 'player_damaged';
+    const context = TRIGGER_CONTEXTS[rule.trigger.type];
     rule.filters.forEach((filter, f) => {
-      if ((filter.type === 'enemy_type' || filter.type === 'tag') && !enemyEvent) issue('This filter needs an enemy event', ['filters', f]);
+      if (ENEMY_FILTERS.includes(filter.type) && !context.enemy) issue('This filter needs an enemy event', ['filters', f]);
     });
     rule.actions.forEach((action, a) => {
       cost += actionCost(action);
       const placements = action.type === 'modify' ? (action.target.kind === 'enemies' && action.target.area ? [action.target.area.at] : []) : [action.at];
-      if (!hasPosition && placements.some(at => at.anchor === 'event')) issue('This trigger has no event position', ['actions', a]);
+      if (!context.position && placements.some(at => at.anchor === 'event')) issue('This trigger has no event position', ['actions', a]);
       if (action.type !== 'modify') return;
       let player = action.target.kind === 'player';
       if (action.target.kind === 'event_entity') {
-        if (rule.trigger.type !== 'enemy_spawned' && rule.trigger.type !== 'player_damaged') issue('This trigger has no live event entity', ['actions', a, 'target']);
-        player = rule.trigger.type === 'player_damaged';
+        if (!context.liveEntity) issue('This trigger has no live event entity', ['actions', a, 'target']);
+        player = context.liveEntity === 'player';
       }
       if (!(player ? PLAYER_STATS : ENEMY_STATS).includes(action.stat)) issue('Stat is incompatible with its target', ['actions', a, 'stat']);
     });
@@ -121,11 +130,59 @@ export const RulesetSchema = z.object({
 });
 export type Ruleset = z.infer<typeof RulesetSchema>;
 export type Rule = Ruleset['rules'][number];
+export type RuleValidation = { ok: true; data: Ruleset } | { ok: false; errors: string[] };
 
-export function validateRuleset(input: unknown): { ok: true; data: Ruleset } | { ok: false; errors: string[] } {
+export function validateRuleset(input: unknown): RuleValidation {
+  // Refuse oversized collections before Zod walks their elements.
+  const tooMany = (value: unknown, max: number) => Array.isArray(value) && value.length > max;
+  if (input && typeof input === 'object' && 'rules' in input && Array.isArray(input.rules)) {
+    if (tooMany(input.rules, RULE_LIMITS.rules)) return { ok: false, errors: [`rules: At most ${RULE_LIMITS.rules} rules are allowed`] };
+    for (const [i, rule] of input.rules.entries()) {
+      if (!rule || typeof rule !== 'object') continue;
+      for (const [field, max] of [['actions', RULE_LIMITS.actions], ['filters', RULE_LIMITS.filters]] as const) {
+        if (tooMany(rule[field], max)) return { ok: false, errors: [`rules.${i}.${field}: At most ${max} entries are allowed`] };
+      }
+      if (Array.isArray(rule.actions)) for (const [a, action] of rule.actions.entries()) {
+        if (action && typeof action === 'object' && tooMany(action.tags, RULE_LIMITS.tags)) return { ok: false, errors: [`rules.${i}.actions.${a}.tags: At most ${RULE_LIMITS.tags} tags are allowed`] };
+      }
+    }
+  }
   const result = RulesetSchema.safeParse(input);
   return result.success ? { ok: true, data: result.data } : {
     ok: false, errors: result.error.issues.map(issue => `${issue.path.join('.') || 'ruleset'}: ${issue.message}`),
+  };
+}
+
+export function parseRuleset(json: unknown): RuleValidation {
+  if (typeof json !== 'string') return { ok: false, errors: ['Rules must be supplied as JSON text.'] };
+  if (json.length > RULE_LIMITS.jsonCharacters) return { ok: false, errors: [`These rules are too long. Keep them under ${RULE_LIMITS.jsonCharacters.toLocaleString('en-US')} characters.`] };
+  let input: unknown;
+  try { input = JSON.parse(json); }
+  catch { return { ok: false, errors: ['Could not read these rules. Check the JSON punctuation.'] }; }
+  return validateRuleset(input);
+}
+
+export function getRuleCatalog() {
+  return {
+    version: 1,
+    schema: z.toJSONSchema(RulesetSchema, { io: 'input' }),
+    triggers: structuredClone(TRIGGER_CONTEXTS),
+    filters: FilterSchema.options.map(option => ({ type: option.shape.type.value, requiresEnemyEvent: ENEMY_FILTERS.includes(option.shape.type.value) })),
+    selectors: SelectorSchema.options.map(option => option.shape.kind.value),
+    anchors: [...PlacementSchema.shape.anchor.options],
+    actions: structuredClone(ACTION_COSTS),
+    enemyKinds: [...ENEMY_KINDS],
+    stats: { player: [...PLAYER_STATS], enemy: [...ENEMY_STATS], bounds: structuredClone(STAT_LIMITS) },
+    limits: { ...RULE_LIMITS },
+    entityLimits: { ...ENTITY_LIMITS },
+    runtimeChecks: ['unique_rule_ids', 'unique_tags', 'trigger_filter_context', 'trigger_placement_context', 'live_entity_context', 'target_stat_compatibility', 'total_action_cost'],
+    lifecycle: {
+      queue: 'one_next_wave_slot', activation: 'before_wave_started', expiration: 'before_shutdown_payout',
+      modifierIdentity: ['owner', 'rule', 'action', 'target', 'stat'], retrigger: 'refresh',
+      pause: 'freeze_gameplay_time', offspringGenerations: RULE_LIMITS.offspringGenerations, sourceIdentity: 'application_owned',
+      terminal: ['death', 'restart'],
+      validation: 'JSON Schema describes structure; validateRuleset must approve the complete composition before queueing.',
+    },
   };
 }
 

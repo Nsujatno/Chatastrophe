@@ -1,0 +1,12 @@
+# Copy these settings into your private .env and fill in your Twitch app credentials.
+# Register this OAuth redirect URL: http://localhost:5173/api/twitch/callback
+PUBLIC_ORIGIN=http://localhost:5173
+HOST=127.0.0.1
+PORT=3001
+
+TWITCH_CLIENT_ID=
+TWITCH_CLIENT_SECRET=
+
+# Keep test modes disabled when connecting real Twitch chat.
+MOCK_CHAT=false
+TWITCH_CLI_TEST=false

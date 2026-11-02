@@ -7,19 +7,23 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite",
+    "server": "node --experimental-strip-types server/main.ts",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "rules:catalog": "node --experimental-strip-types scripts/export-rule-catalog.mjs",
     "test:e2e": "playwright test",
     "test:production": "playwright test --config playwright.production.config.ts",
     "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run test:e2e && npm run test:production"
   },
   "dependencies": {
     "phaser": "^4.2.1",
+    "socket.io": "^4.8.4",
+    "socket.io-client": "^4.8.4",
     "zod": "^4.6.7"
   },
   "devDependencies": {

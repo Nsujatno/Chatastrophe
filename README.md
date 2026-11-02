@@ -4,13 +4,18 @@ A standalone top-down arena survival game in a paper-and-ink robot world.
 Guide a yellow scavenger through endless waves of rogue machines, collect scrap,
 and fit an upgrade between waves.
 
-**Current milestone: M2 — endless waves and composable sabotage.** Six example
-rulesets and custom JSON use one validated, wave-scoped runtime. Twitch and the AI
-Director belong to later milestones. The game needs no account, API key, backend,
-or external connection; all artwork is served locally.
+**Current milestone: M4 — Twitch connection and next-wave suggestion collection.**
+Chat gives ideas in ordinary messages during wave N. The gateway collects them
+for wave N+1; it does not trigger immediate effects or parse sabotage commands.
+AI processing, rule announcements and activation are M5. Six manual presets,
+three composition examples and custom JSON already share the validated runtime.
+Standalone gameplay needs no account, API key or backend; artwork is local.
 
 The developer build includes a clearly labeled manual sabotage queue. Timed
-pre-wave chat voting is deferred to M7.1; there is no simulated Twitch/AI input.
+pre-wave chat voting is deferred to M7.1. The optional local chat panel is visibly
+labeled as a test and never impersonates live Twitch or AI processing.
+
+See [Twitch setup and testing](docs/twitch.md) to configure the optional gateway.
 
 ## Play
 
@@ -71,6 +76,8 @@ stats/remove owned units without rewards, and **Remove next-wave changes** to em
 the next-wave slot. Active data, queued data, warnings, subscriptions and modifiers
 are inspectable in the panel. Production builds omit the panel and test bridge.
 See [the rule format and limits](docs/sabotage-rules.md) for a custom example.
+M3 adds three [JSON examples](docs/rules/) and a [generated catalog and integration
+contract](docs/rule-integration.md) for future server/AI callers.
 
 Descriptions use gameplay language. Glass Cannon means **43% faster firing**
 (450ms between shots becomes 315ms) in exchange for **40% more damage from enemy
@@ -87,7 +94,9 @@ npm ci
 npm run dev
 ```
 
-Open the local address printed by Vite, normally http://127.0.0.1:5173.
+Open the local address printed by Vite, normally http://localhost:5173.
+For Twitch, open http://localhost:5173 and set `PUBLIC_ORIGIN` to that same
+address; Twitch's HTTP redirect exception requires `localhost`.
 
 Playwright requires its Chromium browser:
 
@@ -114,6 +123,7 @@ Unset `PLAYWRIGHT_CHANNEL` to return to bundled Chromium.
 | `npm run lint` | ESLint |
 | `npm test` | Gameplay rules and asset-integrity tests |
 | `npm run test:watch` | Watch unit tests |
+| `npm run rules:catalog` | Export the shared schema/catalog into docs/rule-catalog.json |
 | `npm run test:e2e` | Chromium gameplay and browser checks |
 | `npm run test:production` | Chromium production checks; run build first |
 | `npm run build` | Typecheck and build into `dist/` |
@@ -154,7 +164,8 @@ keep the full canvas and move menus beneath it; keyboard play is desktop first.
 
 ## Tuning and verification
 
-Gameplay values live in `src/game/systems/run.ts`. Active caps are 70 enemies,
+Base gameplay values live in `src/game/systems/run.ts`; shared safety caps and
+validation bounds live in `src/shared/rules.ts`. Active caps are 70 enemies,
 48 projectiles, 140 scrap pickups, eight combined hazard warnings, and 60 transient effects.
 At the pickup cap, earned scrap is credited directly rather than discarded.
 Player and enemy illustrations retain their source alpha; their atlases align
@@ -169,6 +180,11 @@ Browser checks cover actual collisions, movement, animation playback, pickups,
 warnings, shops, loss, pauses, responsive layout, and repeated clean restarts.
 Rule tests cover validation, ownership, every primitive, refresh/stacking/expiry,
 lineage, warning delays, chained explosions, bounded execution and all six presets.
+M3 adds catalog export/Node import checks, three new linked compositions,
+oversized/malformed input rejection, stale-callback and ended-run protection,
+and a 250-wave simulation with 70 actors and event floods. Native browser tests
+also cover 20 dense waves with funded shop purchases and repeated resets; those
+capacity fixtures are separate from normal-health survival verification.
 
 Browser tests serve Vite in `test` mode, which exposes a test-only game reference.
 Transition fixtures explicitly advance the run clock; a separate full-run test
@@ -182,5 +198,5 @@ input, camera, loading, scene, event, timer, tween, and graphics decisions follo
 the installed Phaser skills.
 
 Audio remains disabled. Production builds report non-blocking Phaser bundle-size
-and upstream Zod comment-annotation warnings. M3 is rule-engine hardening; weapon
-variety, Twitch, AI, and timed chat voting remain future work.
+and upstream Zod comment-annotation warnings. Live Twitch account verification
+is pending; AI processing, weapon variety and timed chat voting remain future work.

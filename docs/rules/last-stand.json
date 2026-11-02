@@ -1,0 +1,51 @@
+{
+  "id": "last-stand",
+  "name": "Last Stand",
+  "rules": [
+    {
+      "id": "fight-back",
+      "trigger": { "type": "player_damaged" },
+      "filters": [{ "type": "health_below", "percent": 40 }],
+      "cooldownMs": 2000,
+      "actions": [
+        { "type": "modify", "target": { "kind": "player" }, "stat": "projectile_damage", "multiplier": 1.5, "durationMs": 2500 },
+        { "type": "modify", "target": { "kind": "player" }, "stat": "attack_interval", "multiplier": 0.75, "durationMs": 2500 },
+        {
+          "type": "spawn", "enemyType": "skitter", "count": 1,
+          "at": { "anchor": "player", "radius": 200 },
+          "profile": { "health": 0.5, "damage": 0.5, "size": 0.7, "reward": 0.25 },
+          "tags": ["pursuer"]
+        }
+      ]
+    },
+    {
+      "id": "pursuit",
+      "trigger": { "type": "enemy_spawned" },
+      "filters": [{ "type": "tag", "value": "pursuer" }],
+      "actions": [
+        { "type": "modify", "target": { "kind": "event_entity" }, "stat": "contact_damage", "multiplier": 1.5, "durationMs": "wave" },
+        {
+          "type": "modify", "target": { "kind": "enemies", "area": { "at": { "anchor": "player" }, "radius": 300 } },
+          "stat": "move_speed", "multiplier": 1.3, "durationMs": 3000
+        }
+      ]
+    },
+    {
+      "id": "parting-gift",
+      "trigger": { "type": "enemy_died" },
+      "filters": [{ "type": "tag", "value": "pursuer" }],
+      "actions": [{
+        "type": "spawn", "enemyType": "hover-drone", "count": 1,
+        "at": { "anchor": "event", "radius": 150 },
+        "profile": { "health": 0.5, "size": 0.6, "damage": 0.5, "reward": 0.25 },
+        "tags": ["spark"]
+      }]
+    },
+    {
+      "id": "spark-burst",
+      "trigger": { "type": "enemy_died" },
+      "filters": [{ "type": "tag", "value": "spark" }],
+      "actions": [{ "type": "explode", "at": { "anchor": "event" }, "radius": 50, "damage": 6 }]
+    }
+  ]
+}

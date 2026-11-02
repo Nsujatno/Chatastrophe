@@ -1,5 +1,9 @@
 # M2 sabotage rules
 
+The M3 [integration contract](rule-integration.md) adds a generated
+[JSON catalog](rule-catalog.json), three composition examples and stronger
+event/ownership checks. This page describes the shared gameplay format.
+
 `src/shared/rules.ts` is the shared admission schema and limit catalog.
 `SabotageManager` validates, previews, queues, activates and clears definitions.
 `ArenaScene` connects its world port to Phaser scene events, Arcade Physics,
@@ -100,7 +104,7 @@ All numeric inputs must be finite. Objects are strict, including nested data.
 | Static chaos cost | ≤32 per ruleset; spawn = 3 × count, blast = 5, modifier = 1 |
 | Active chaos cost | Same action costs; shared 32-token burst, 8 tokens/second refill |
 | Actions per event / gameplay frame | 18 / 24, including due actions in the frame budget |
-| Queued events / pending actions | 128 / 64 |
+| Processed events per frame / queued events / pending actions | 128 / 128 / 64 |
 | Visible warnings / actors / shots / pickups / transient effects | 8 combined / 70 / 48 / 140 / 60 |
 | Rule-created units per wave / enemy offspring generations / causal depth | 48 / 1 / 4 |
 

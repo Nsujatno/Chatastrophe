@@ -1,0 +1,32 @@
+{
+  "id": "rescue-party",
+  "name": "Rescue Party",
+  "rules": [
+    {
+      "id": "call-help",
+      "trigger": { "type": "interval", "everyMs": 8000 },
+      "filters": [{ "type": "health_below", "percent": 50 }],
+      "actions": [{
+        "type": "spawn", "enemyType": "hover-drone", "count": 2,
+        "at": { "anchor": "arena" },
+        "profile": { "health": 0.5, "damage": 0.5, "size": 0.7, "reward": 0.25 },
+        "tags": ["rescue"]
+      }]
+    },
+    {
+      "id": "slow-help",
+      "trigger": { "type": "enemy_spawned" },
+      "filters": [{ "type": "tag", "value": "rescue" }],
+      "actions": [
+        { "type": "modify", "target": { "kind": "event_entity" }, "stat": "move_speed", "multiplier": 0.7, "durationMs": "wave" },
+        { "type": "modify", "target": { "kind": "event_entity" }, "stat": "size", "multiplier": 1.2, "durationMs": 4000 }
+      ]
+    },
+    {
+      "id": "unstable-help",
+      "trigger": { "type": "enemy_died" },
+      "filters": [{ "type": "tag", "value": "rescue" }],
+      "actions": [{ "type": "explode", "at": { "anchor": "event" }, "radius": 70, "damage": 8 }]
+    }
+  ]
+}

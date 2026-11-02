@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { RULE_LIMITS, describeRuleset, validateRuleset, type TriggerType } from '../../src/shared/rules';
-import { SabotageManager, type BlastRequest, type GameEvent, type Point, type RuleEntity, type RuleWorld, type SpawnRequest } from '../../src/game/rules/SabotageManager';
+import { RULE_LIMITS, describeRuleset, validateRuleset } from '../../src/shared/rules';
+import { SabotageManager } from '../../src/game/rules/SabotageManager';
+import { World, enemy } from '../helpers/ruleWorld';
 import { PRESETS } from '../../src/game/rules/presets';
 import { ModifierStore } from '../../src/game/rules/ModifierStore';
 
@@ -8,42 +9,6 @@ const modify = (stat = 'move_speed', multiplier = 1.5, durationMs: number | stri
 const blast = { type: 'explode', at: { anchor: 'player' }, radius: 80, damage: 10 };
 const spawn = { type: 'spawn', enemyType: 'hover-drone', count: 2, at: { anchor: 'event', radius: 90 }, profile: { size: 0.6, reward: 0.25 }, tags: ['mini'] };
 const definition = (actions: unknown[] = [modify()], trigger: unknown = { type: 'player_damaged' }, filters: unknown[] = []) => ({ id: 'custom', name: 'Custom test', rules: [{ id: 'rule', trigger, filters, actions }] });
-const enemy = (id = 'robot', generation = 0, tags: string[] = []): RuleEntity => ({ id, generation, tags, kind: 'hover-drone', x: 500, y: 400, radius: 20 });
-
-class World implements RuleWorld {
-  bounds = { width: 1600, height: 900 };
-  actor: RuleEntity = { id: 'player', kind: 'player', x: 1000, y: 700, tags: [], generation: 0, radius: 20 };
-  actors: RuleEntity[] = [enemy()];
-  health = 40;
-  listeners = new Map<TriggerType, Set<(e: GameEvent) => void>>();
-  warnings: { type: string; at: Point; radius: number }[] = [];
-  spawns: SpawnRequest[] = [];
-  blasts: BlastRequest[] = [];
-  removed: string[] = [];
-  onBlast?: (request: BlastRequest) => void;
-  onSpawn?: (request: SpawnRequest) => void;
-  player = () => this.actor;
-  enemies = () => this.actors;
-  healthPercent = () => this.health;
-  subscribe(type: TriggerType, handler: (e: GameEvent) => void) {
-    const handlers = this.listeners.get(type) ?? new Set();
-    this.listeners.set(type, handlers); handlers.add(handler);
-    return () => { handlers.delete(handler); };
-  }
-  warn(type: 'spawn' | 'explode', at: Point, radius: number): (() => void) | undefined {
-    const warning = { type, at, radius };
-    this.warnings.push(warning);
-    return () => { this.warnings = this.warnings.filter(w => w !== warning); };
-  }
-  spawn(request: SpawnRequest) { this.spawns.push(request); this.onSpawn?.(request); }
-  explode(request: BlastRequest) { this.blasts.push(request); this.onBlast?.(request); }
-  removeOwned(owner: string) { this.removed.push(owner); }
-  emit(type: TriggerType, subject?: RuleEntity, extra: Partial<GameEvent> = {}) {
-    const event: GameEvent = { type, runId: 1, wave: 1, depth: 0, subject, position: subject ? { x: subject.x, y: subject.y } : undefined, ...extra };
-    for (const handler of this.listeners.get(type) ?? []) handler(event);
-  }
-}
-
 function setup(input: unknown = definition(), random?: () => number) {
   const world = new World();
   const manager = new SabotageManager(1, world, random);

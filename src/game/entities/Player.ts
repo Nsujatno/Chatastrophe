@@ -14,6 +14,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.setScale(0.31).setDepth(10).setCollideWorldBounds(true);
     this.body.setCircle(62, 98, 98);
     this.body.setBoundsRectangle(new Phaser.Geom.Rectangle(24, 24, ARENA.width - 48, ARENA.height - 48));
+    this.body.preUpdate(false, 0);
     this.keys = scene.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT') as Record<string, Phaser.Input.Keyboard.Key>;
     for (const direction of ['down', 'left', 'right', 'up']) {
       for (const walking of [false, true]) {
